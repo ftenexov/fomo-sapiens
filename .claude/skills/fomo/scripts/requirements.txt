@@ -1,0 +1,3 @@
+# fomo skill Python deps
+curl_cffi>=0.7      # browser TLS impersonation — required; fomo's Cloudflare blocks plain clients (HTTP 430)
+solders>=0.21       # solana transaction signing (swap.py execute)
