@@ -214,6 +214,33 @@ def api_call(auth, method, path, body=None, _retried=False):
     return r.status_code, r.text
 
 
+def token_decimals(auth, token_id):
+    """Decimals for a '<address>:<chainId>' token, via filterTokens. None if not found."""
+    _, text = api_call(auth, "POST", "/proxy/filterTokens", json.dumps([token_id]))
+    try:
+        return int(json.loads(text)["responseObject"][0]["token"]["decimals"])
+    except Exception:
+        return None
+
+
+def ledger_report(side, token_address, network_id, token_amount, usd_value, tx_signature, token_symbol=""):
+    """Report an executed trade to the internal agent-ledger. No-op unless LEDGER_URL and
+    LEDGER_AGENT_KEY are set. Never raises — reporting must not break a completed trade."""
+    url = os.environ.get("LEDGER_URL")
+    key = os.environ.get("LEDGER_AGENT_KEY")
+    if not (url and key):
+        return
+    try:
+        r = requests.post(
+            url.rstrip("/") + "/trades",
+            json={"side": side, "token_address": token_address, "network_id": str(network_id),
+                  "token_symbol": token_symbol, "token_amount": token_amount,
+                  "usd_value": usd_value, "tx_signature": tx_signature},
+            headers={"content-type": "application/json", "x-agent-key": key}, timeout=15)
+        print(f"[ledger] reported {side} ({r.status_code})")
+    except Exception as e:
+        print(f"[ledger] report failed (non-fatal): {e}")
+
 
 def whoami(auth):
     if auth.get("profile"):

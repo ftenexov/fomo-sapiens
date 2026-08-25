@@ -177,6 +177,12 @@ def execute(auth, evm_token_id, amount):
         print(f"Relay bridging to USDC — poll: python3 swap.py status {relay_swap_id}")
     print(json.dumps({"userOpHash": uo_hash, "relaySwapId": relay_swap_id, "chain": chain_id}, indent=2))
 
+    # Report to the internal ledger (sell = EVM token -> USDC). No-op unless LEDGER_* set.
+    token_addr = evm_token_id.split(":")[0]
+    dec = fomo.token_decimals(auth, evm_token_id)
+    human = int(amount) / (10 ** dec) if dec else float(amount)
+    fomo.ledger_report("sell", token_addr, chain_id, human, v2.get("swapUsdValue"), uo_hash)
+
 
 def main():
     args = sys.argv[1:]

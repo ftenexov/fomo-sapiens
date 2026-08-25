@@ -106,6 +106,26 @@ def sign_and_submit(q):
     return res
 
 
+USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+
+
+def report_to_ledger(in_id, out_id, amount, q, res):
+    """Translate a completed swap into a ledger trade event (buy = USDC->token, sell = token->USDC)."""
+    if not res.get("submitted"):
+        return
+    s = q.get("v1Swap") or q.get("v2Swap")
+    in_addr, in_net = in_id.split(":")
+    out_addr, out_net = out_id.split(":")
+    if in_addr == USDC_MINT:  # buying the out-token with USDC
+        fomo.ledger_report("buy", out_addr, out_net, s.get("expectedOutHumanAmount"),
+                           s.get("swapUsdValue"), res.get("txSignature"))
+    elif out_addr == USDC_MINT:  # selling the in-token for USDC
+        auth = fomo._ensure_fresh(fomo.load_auth())
+        dec = fomo.token_decimals(auth, in_id)
+        human = int(amount) / (10 ** dec) if dec else float(amount)
+        fomo.ledger_report("sell", in_addr, in_net, human, s.get("swapUsdValue"), res.get("txSignature"))
+
+
 def main():
     args = sys.argv[1:]
     if not args:
@@ -116,7 +136,8 @@ def main():
     elif cmd == "execute":
         q = quote(args[1], args[2], args[3])
         print("Quote:", json.dumps(summarize(q)))
-        sign_and_submit(q)
+        res = sign_and_submit(q)
+        report_to_ledger(args[1], args[2], args[3], q, res)
     elif cmd == "status":
         auth = fomo._ensure_fresh(fomo.load_auth())
         _, text = fomo.api_call(auth, "GET", f"/swaps/v2/status?relaySwapId={args[1]}")
