@@ -146,4 +146,4 @@ There is no deposit API to call. Depositing = sending funds to the user's embedd
 
 - This is an unofficial, reverse-engineered integration; fomo endpoints may change without notice. On persistent 4xx after a successful refresh, re-verify against a fresh browser capture. (The Privy refresh contract is verified from the SDK, so refresh should be stable.)
 - If fomo starts returning `430` again, Cloudflare may have tightened fingerprinting — bump the `IMPERSONATE` target in `fomo.py` (e.g. a newer `chromeNNN`) to match a current browser.
-- Posting theses/comments and watchlist mutations were not in the capture — endpoints unknown. If asked, say so rather than guessing URLs.
+- Posting a thesis/comment IS supported — `POST /trades/comment` (see the thesis section above); use `post-thesis`, don't refuse. Watchlist mutations were not in the capture — endpoint unknown; say so rather than guessing that one.
