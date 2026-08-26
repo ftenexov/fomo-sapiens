@@ -39,7 +39,17 @@ All config lives in one file: `scripts/.env` (copy `scripts/.env.example` to `sc
 cp scripts/.env.example scripts/.env
 ```
 
-**1) Tokens.** Log into fomo.family in a browser, open **DevTools → Console**, and run this — it copies three ready-to-paste lines to your clipboard:
+**1) Tokens.** Two ways:
+
+**Automated (recommended)** — `scripts/login.py` opens a browser, you log in once, and it captures the tokens for you (no copy-paste). Uses a persistent profile, so later refreshes can run headless:
+```bash
+python3 -m pip install playwright && playwright install chromium   # one-time
+python3 scripts/login.py             # a window opens — log in with Google
+python3 scripts/login.py --headless  # later: refresh tokens from the saved session
+```
+This writes tokens straight to the token cache (respects `FOMO_PROFILE`); you can skip the `FOMO_ACCESS_TOKEN`/`FOMO_REFRESH_TOKEN` lines in `.env` if you use it.
+
+**Manual** — log into fomo.family, open **DevTools → Console**, and run this to copy three ready-to-paste lines:
 ```js
 copy(`FOMO_ACCESS_TOKEN=${JSON.parse(localStorage.getItem('privy:token'))}
 FOMO_REFRESH_TOKEN=${JSON.parse(localStorage.getItem('privy:refresh_token'))}

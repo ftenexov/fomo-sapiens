@@ -7,3 +7,6 @@ auth.json
 __pycache__/
 *.pyc
 .DS_Store
+
+# playwright persistent profile (if ever placed in-repo)
+browser/
