@@ -41,13 +41,18 @@ cp scripts/.env.example scripts/.env
 
 **1) Tokens.** Two ways:
 
-**Automated (recommended)** — `scripts/login.py` opens a browser, you log in once, and it captures the tokens for you (no copy-paste). Uses a persistent profile, so later refreshes can run headless:
+**Automated (recommended)** — `scripts/login.py` opens a browser, you log in once, and it writes the tokens straight into `.env` for you (no copy-paste). It prints a disclaimer and uses a persistent profile, so later refreshes run headless:
 ```bash
 python3 -m pip install playwright && playwright install chromium   # one-time
 python3 scripts/login.py             # a window opens — log in with Google
 python3 scripts/login.py --headless  # later: refresh tokens from the saved session
 ```
-This writes tokens straight to the token cache (respects `FOMO_PROFILE`); you can skip the `FOMO_ACCESS_TOKEN`/`FOMO_REFRESH_TOKEN` lines in `.env` if you use it.
+- On first run this **creates/fills `.env`** with the token values (keys stay empty).
+- `python3 scripts/fomo.py logout` when you're done — wipes the `.env` values, cached session, and browser profile.
+
+> ⚠️ **Don't use your main fomo.family account.** This stores session tokens (and, if you trade, your private key) in plaintext. Use a separate account with limited funds. login.py prints this on every login.
+
+**Note on keys:** only *tokens* can be auto-captured — they live in the browser's `localStorage`. **Private keys are not in the page** (Privy keeps them in a secure enclave), so they can't be pulled automatically; export them once and set via `fomo.py set-key` or `.env`. Keys don't expire, so it's a genuine one-time step.
 
 **Manual** — log into fomo.family, open **DevTools → Console**, and run this to copy three ready-to-paste lines:
 ```js

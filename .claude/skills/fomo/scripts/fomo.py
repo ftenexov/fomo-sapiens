@@ -12,13 +12,25 @@ Usage:
     python3 fomo.py api GET /watchlist                  authed API call
     python3 fomo.py api POST /proxy/trendingTokens '{}' authed API call with JSON body
 """
-import base64, json, os, sys, time
+import base64, json, os, re, sys, time
 
 from curl_cffi import requests
 
 IMPERSONATE = "chrome124"
 API = "https://prod-api.fomo.family"
 PRIVY = "https://auth.privy.io"
+
+DISCLAIMER = (
+    "\n⚠️  DISCLAIMER — do NOT use your main fomo.family account with this tool.\n"
+    "   This is an unofficial integration. Session tokens (and, if you trade, your\n"
+    "   exported private key) are stored in PLAINTEXT on this machine. Use a separate\n"
+    "   account holding only funds you can afford to lose. Run `fomo.py logout` to wipe it.\n"
+)
+
+SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
+ENV_FILE = os.environ.get("FOMO_ENV") or os.path.join(SCRIPTS_DIR, ".env")
+_MANAGED_ENV_KEYS = ["FOMO_ACCESS_TOKEN", "FOMO_REFRESH_TOKEN", "FOMO_PRIVY_ACCESS_TOKEN",
+                     "FOMO_WALLET_KEY", "FOMO_EVM_KEY"]
 
 
 def _load_dotenv():
@@ -37,6 +49,8 @@ def _load_dotenv():
                     continue
                 k, v = line.split("=", 1)
                 k, v = k.strip(), v.strip()
+                if v and v[0] not in "\"'" and " #" in v:
+                    v = v.split(" #", 1)[0].strip()   # strip inline comment on unquoted values
                 if len(v) >= 2 and v[0] in "\"'" and v[-1] == v[0]:
                     v = v[1:-1]
                 os.environ.setdefault(k, v)
@@ -44,6 +58,48 @@ def _load_dotenv():
 
 
 _load_dotenv()
+
+
+def _set_env_values(updates):
+    """Insert/replace KEY=value lines in ENV_FILE, preserving comments and other lines.
+    Creates the file (from .env.example if present) when missing. mode 600."""
+    try:
+        with open(ENV_FILE) as f:
+            lines = f.read().splitlines()
+    except FileNotFoundError:
+        example = os.path.join(SCRIPTS_DIR, ".env.example")
+        lines = open(example).read().splitlines() if os.path.exists(example) else []
+    remaining = dict(updates)
+    out = []
+    for ln in lines:
+        m = re.match(r"\s*([A-Z0-9_]+)\s*=", ln)
+        if m and m.group(1) in remaining:
+            out.append(f"{m.group(1)}={remaining.pop(m.group(1))}")
+        else:
+            out.append(ln)
+    for k, v in remaining.items():
+        out.append(f"{k}={v}")
+    fd = os.open(ENV_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write("\n".join(out) + "\n")
+
+
+def write_env_tokens(access, refresh, pat):
+    _set_env_values({"FOMO_ACCESS_TOKEN": access, "FOMO_REFRESH_TOKEN": refresh,
+                     "FOMO_PRIVY_ACCESS_TOKEN": pat or ""})
+
+
+def logout():
+    """Full logout: blank the managed .env values, delete the cached tokens/keys and the
+    persistent browser profile, so no account state remains."""
+    import shutil
+    if os.path.exists(ENV_FILE):
+        _set_env_values({k: "" for k in _MANAGED_ENV_KEYS})
+    for path in (AUTH_FILE, keys_file()):
+        try: os.remove(path)
+        except FileNotFoundError: pass
+    stem = os.path.splitext(os.path.basename(AUTH_FILE))[0]
+    shutil.rmtree(os.path.join(os.path.dirname(AUTH_FILE), "browser", stem), ignore_errors=True)
 
 
 def _auth_file():
@@ -292,7 +348,7 @@ def post_thesis(auth, tradeId, text, visibility="public"):
 def main():
     args = sys.argv[1:]
     if not args:
-        die("Commands: auth | refresh | whoami | api | set-key | resolve-trade | post-thesis")
+        die("Commands: auth | login-save | logout | refresh | whoami | api | set-key | resolve-trade | post-thesis")
     cmd = args[0]
 
     if cmd == "auth":
@@ -324,6 +380,10 @@ def main():
             print(f"HTTP {status}", file=sys.stderr)
         print(text)
         sys.exit(0 if status == 200 else 1)
+
+    elif cmd == "logout":
+        logout()
+        print("Logged out: cleared .env tokens/keys, cached session, and browser profile.")
 
     elif cmd == "reseed":
         # Force-refresh auth.json from the current .env tokens (after pasting fresh ones).
@@ -359,7 +419,7 @@ def main():
         sys.exit(0 if status == 200 else 1)
 
     else:
-        die("Commands: auth | refresh | whoami | api | set-key | resolve-trade | post-thesis")
+        die("Commands: auth | login-save | logout | refresh | whoami | api | set-key | resolve-trade | post-thesis")
 
 
 if __name__ == "__main__":

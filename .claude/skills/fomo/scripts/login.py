@@ -25,14 +25,25 @@ _stem = os.path.splitext(os.path.basename(fomo.AUTH_FILE))[0]  # 'auth' or profi
 PROFILE_DIR = os.path.join(os.path.dirname(fomo.AUTH_FILE), "browser", _stem)
 
 
-def _harvest(page):
-    return page.evaluate(
-        "() => ({"
-        "  token: localStorage.getItem('privy:token'),"
-        "  refresh: localStorage.getItem('privy:refresh_token'),"
-        "  pat: localStorage.getItem('privy:pat')"
-        "})"
-    )
+def _harvest(ctx):
+    """Read tokens from any open fomo.family page. Resilient to OAuth navigations
+    (the page hops to accounts.google.com and back, which destroys eval contexts)."""
+    for pg in ctx.pages:
+        try:
+            if "fomo.family" not in (pg.url or ""):
+                continue  # tokens live only on the fomo.family origin, not google's
+            t = pg.evaluate(
+                "() => ({"
+                "  token: localStorage.getItem('privy:token'),"
+                "  refresh: localStorage.getItem('privy:refresh_token'),"
+                "  pat: localStorage.getItem('privy:pat')"
+                "})"
+            )
+            if t and t.get("token"):
+                return t
+        except Exception:
+            continue  # mid-navigation context destroyed — try again next poll
+    return {}
 
 
 def main():
@@ -44,16 +55,25 @@ def main():
 
     headless = "--headless" in sys.argv
     os.makedirs(PROFILE_DIR, exist_ok=True)
+    # Hide automation so Google's OAuth doesn't refuse with "this browser may not be secure".
+    launch = dict(
+        headless=headless,
+        args=["--disable-blink-features=AutomationControlled"],
+        ignore_default_args=["--enable-automation"],
+    )
     tokens = None
     with sync_playwright() as p:
-        ctx = p.chromium.launch_persistent_context(PROFILE_DIR, headless=headless)
+        try:
+            ctx = p.chromium.launch_persistent_context(PROFILE_DIR, channel="chrome", **launch)
+        except Exception:
+            ctx = p.chromium.launch_persistent_context(PROFILE_DIR, **launch)  # fallback: bundled chromium
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         page.goto(FOMO_URL, wait_until="domcontentloaded")
         if not headless:
             print("Log in to fomo.family in the browser window… (waiting up to 4 min)")
-        deadline = time.time() + (30 if headless else 240)
+        deadline = time.time() + (30 if headless else 300)
         while time.time() < deadline:
-            tokens = _harvest(page)
+            tokens = _harvest(ctx)
             if tokens.get("token") and tokens["token"] not in ("null", '"deprecated"'):
                 break
             time.sleep(2)
@@ -65,13 +85,19 @@ def main():
                     else "Login didn't complete — try again."))
 
     unq = fomo._unquote
-    fomo.save_auth({
-        "accessToken": unq(tokens["token"]),
-        "refreshToken": unq(tokens["refresh"]),
-        "privyAccessToken": unq(tokens["pat"]) if tokens.get("pat") else None,
-    })
-    profile = fomo.whoami(fomo.load_auth())
-    print(f"Logged in as {profile['handle']} — tokens saved to {fomo.AUTH_FILE}")
+    access, refresh = unq(tokens["token"]), unq(tokens["refresh"])
+    pat = unq(tokens["pat"]) if tokens.get("pat") else None
+    # Fill .env (the source of truth the user manages) and seed the live cache.
+    fomo.write_env_tokens(access, refresh, pat)
+    fomo.save_auth({"accessToken": access, "refreshToken": refresh, "privyAccessToken": pat})
+    print(fomo.DISCLAIMER)
+    try:
+        handle = fomo.whoami(fomo.load_auth())["handle"]
+        who = f"Logged in as {handle}"
+    except Exception as e:
+        who = f"Tokens captured (couldn't confirm handle — {str(e)[:50]}; try `fomo.py whoami`)"
+    print(f"{who} — tokens written to {fomo.ENV_FILE}")
+    print("Run `python3 fomo.py logout` when done to wipe all account state.")
 
 
 if __name__ == "__main__":

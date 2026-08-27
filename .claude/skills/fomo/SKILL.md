@@ -25,7 +25,10 @@ Token model (verified against the `@privy-io/react-auth` 3.34.0 bundle):
 - `privy:pat` — Privy's own access token (`privy_access_token`); not used by fomo's API, stored for completeness.
 - Refresh call: `POST https://auth.privy.io/api/v1/sessions` with body `{"refresh_token": "<token>"}` and headers `privy-app-id`, `privy-client-id`, `privy-client`, plus `Authorization: Bearer <current access token>`. Response is the AuthenticatedUser object `{user, token, privy_access_token, refresh_token, session_update_action}`; `session_update_action: "clear"` means the session is dead (re-paste needed).
 
-**Setup (automated, preferred)** — run `python3 scripts/login.py`; a browser opens, the user logs in once, and it captures + stores the Privy tokens automatically (persistent profile → later `login.py --headless` refreshes them). Needs `playwright` (`pip install playwright && playwright install chromium`). Falls back to the manual paste below if Playwright isn't available.
+**Setup (automated, preferred)** — run `python3 scripts/login.py`; a browser opens, the user logs in once, and it writes the Privy tokens into `.env` automatically (persistent profile → later `login.py --headless` refreshes them). Needs `playwright` (`pip install playwright && playwright install chromium`). Falls back to the manual paste below if Playwright isn't available.
+- **Surface the disclaimer** it prints (don't use your main fomo account — plaintext secrets) to the user on login.
+- Keep using this account until the user asks to log out; then run `python3 scripts/fomo.py logout` to wipe `.env` values, the cached session, and the browser profile.
+- Only tokens are auto-captured (they're in `localStorage`). **Private keys are NOT in the page** (Privy security) — they can't be pulled automatically; the user exports once and sets them via `set-key`/`.env`. Don't claim you can auto-pull a key.
 
 **Setup (manual)** — ask the user to open fomo.family (logged in), run this in the DevTools console, and paste the result back:
 
