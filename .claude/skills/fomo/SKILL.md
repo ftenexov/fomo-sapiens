@@ -25,11 +25,14 @@ Token model (verified against the `@privy-io/react-auth` 3.34.0 bundle):
 - `privy:pat` — Privy's own access token (`privy_access_token`); not used by fomo's API, stored for completeness.
 - Refresh call: `POST https://auth.privy.io/api/v1/sessions` with body `{"refresh_token": "<token>"}` and headers `privy-app-id`, `privy-client-id`, `privy-client`, plus `Authorization: Bearer <current access token>`. Response is the AuthenticatedUser object `{user, token, privy_access_token, refresh_token, session_update_action}`; `session_update_action: "clear"` means the session is dead (re-paste needed).
 
-**Setup (automated, preferred)** — run `python3 scripts/login.py`; a browser opens, the user logs in once, and it writes the Privy tokens into `.env` automatically (persistent profile → later `login.py --headless` refreshes them). Needs `playwright` (`pip install playwright && playwright install chromium`). Falls back to the manual paste below if Playwright isn't available.
-- **Surface the disclaimer** it prints (don't use your main fomo account — plaintext secrets) to the user on login.
-- login also checks balances; **if the account is empty, relay the deposit addresses** (Solana + EVM) it prints so the user can fund it. Re-check anytime with `python3 scripts/fomo.py balances`.
-- Keep using this account until the user asks to log out; then run `python3 scripts/fomo.py logout` to wipe `.env` values, the cached session, and the browser profile.
-- Only tokens are auto-captured (they're in `localStorage`). **Private keys are NOT in the page** (Privy security) — they can't be pulled automatically; the user exports once and sets them via `set-key`/`.env`. Don't claim you can auto-pull a key.
+**Setup (automated, preferred)** — run `python3 scripts/login.py`; a browser opens, the user logs in once, and it writes the Privy tokens into `.env` automatically (persistent profile → later `login.py --headless` refreshes them). Needs `playwright` (`pip install playwright && playwright install chromium`). Falls back to the manual paste below if Playwright isn't available. If the headed poll doesn't capture within ~20s after the user logs in, stop it and run `python3 scripts/login.py --headless` — it harvests from the now-logged-in persistent profile.
+
+**On every login, the agent MUST relay to the user (login.py prints all of this):**
+1. **The disclaimer** — do NOT use your main fomo.family account; tokens and (if trading) the private key are stored in plaintext. Use a separate account with limited funds.
+2. **The account handle and balance.**
+3. **If the account is empty → the deposit addresses** (Solana for SOL/USDC, EVM for the rest). Tell the user to deposit before trading; funds convert to Solana USDC. Re-check with `python3 scripts/fomo.py balances`.
+
+Keep using this account until the user asks to log out; then run `python3 scripts/fomo.py logout` to wipe `.env` values, the cached session, and the browser profile.
 
 **Setup (manual)** — ask the user to open fomo.family (logged in), run this in the DevTools console, and paste the result back:
 
@@ -105,6 +108,7 @@ python3 scripts/swap.py status  <relaySwapId>                                   
 
 Rules:
 - **Why a key is needed:** reads/quotes/thesis posting work with just the pasted token, but *executing* a trade requires signing a transaction. fomo signs inside the Privy iframe (key reconstructed from shares) and Privy's server signing API needs fomo's app secret (which we don't have) — so the only way to sign outside the browser is the raw key. Only `execute` needs it; `quote` never does.
+- **Getting the key:** run `python3 scripts/export_key.py` — it opens the browser to fomo's export screen; the user clicks **Export key → Copy** for a chain and it captures the key into `.env` automatically (masked; never printed). Privy blocks fully-automated reveal, so that one click is the user's. Keys don't expire — one-time per account.
 - Signing needs `FOMO_WALLET_KEY` (base58 solana secret key, exported by the user from fomo's wallet-export UI). Never echo, log, or store this key; read it from env only.
 - **Always run `quote` and show the user `swapUsdValue`, `expectedOut`, `priceImpactPct`, and any warning, and get explicit confirmation before `execute`** — unless they already gave a standing instruction with exact amounts.
 - Amounts are raw base units (`3000000` = $3 USDC). Sanity-check magnitude before executing; never guess decimals — look them up (see token-resolution note above).
