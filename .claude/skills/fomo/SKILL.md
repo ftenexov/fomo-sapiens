@@ -27,6 +27,7 @@ Token model (verified against the `@privy-io/react-auth` 3.34.0 bundle):
 
 **Setup (automated, preferred)** — run `python3 scripts/login.py`; a browser opens, the user logs in once, and it writes the Privy tokens into `.env` automatically (persistent profile → later `login.py --headless` refreshes them). Needs `playwright` (`pip install playwright && playwright install chromium`). Falls back to the manual paste below if Playwright isn't available.
 - **Surface the disclaimer** it prints (don't use your main fomo account — plaintext secrets) to the user on login.
+- login also checks balances; **if the account is empty, relay the deposit addresses** (Solana + EVM) it prints so the user can fund it. Re-check anytime with `python3 scripts/fomo.py balances`.
 - Keep using this account until the user asks to log out; then run `python3 scripts/fomo.py logout` to wipe `.env` values, the cached session, and the browser profile.
 - Only tokens are auto-captured (they're in `localStorage`). **Private keys are NOT in the page** (Privy security) — they can't be pulled automatically; the user exports once and sets them via `set-key`/`.env`. Don't claim you can auto-pull a key.
 

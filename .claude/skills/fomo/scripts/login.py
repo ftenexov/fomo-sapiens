@@ -92,12 +92,21 @@ def main():
     fomo.save_auth({"accessToken": access, "refreshToken": refresh, "privyAccessToken": pat})
     print(fomo.DISCLAIMER)
     try:
-        handle = fomo.whoami(fomo.load_auth())["handle"]
-        who = f"Logged in as {handle}"
+        s = fomo.account_summary()
     except Exception as e:
-        who = f"Tokens captured (couldn't confirm handle — {str(e)[:50]}; try `fomo.py whoami`)"
-    print(f"{who} — tokens written to {fomo.ENV_FILE}")
-    print("Run `python3 fomo.py logout` when done to wipe all account state.")
+        print(f"Tokens captured & written to {fomo.ENV_FILE}, but couldn't load balances "
+              f"({str(e)[:50]}); try `python3 fomo.py balances`.")
+        return
+    print(f"Logged in as {s['handle']} — tokens written to {fomo.ENV_FILE}")
+    if s["empty"]:
+        print("\n💸 This account is EMPTY — deposit before trading. Send funds to:")
+        print(f"   Solana (SOL / USDC):  {s['solAddress']}")
+        print(f"   EVM (Base/ETH/…):     {s['evmAddress']}")
+        print("   fomo converts deposits to Solana USDC, which all buys spend.")
+    else:
+        top = ", ".join(f"{h['amount']:g} {h['symbol']} (${h['usd']})" for h in s["holdings"][:5])
+        print(f"Balance: ${s['usdTotal']} — {top}")
+    print("\nRun `python3 fomo.py logout` when done to wipe all account state.")
 
 
 if __name__ == "__main__":

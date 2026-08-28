@@ -316,6 +316,28 @@ def whoami(auth):
     return auth["profile"]
 
 
+def account_summary(auth=None):
+    """Resolve the account + its balances into a friendly summary, incl. deposit addresses."""
+    auth = auth or _ensure_fresh(load_auth())
+    prof = whoami(auth)
+    status, text = api_call(auth, "GET", f"/v2/users/{prof['userId']}/balances")
+    bals = (json.loads(text).get("responseObject") or {}).get("balances", []) if status == 200 else []
+    holdings, usd = [], 0.0
+    for b in bals:
+        bal = b.get("balance", {})
+        amt = bal.get("shiftedBalance") or 0
+        tfr = b.get("tokenFilterResult") or {}
+        price = float(tfr.get("priceUSD") or 0)
+        sym = (tfr.get("token") or {}).get("symbol") or (bal.get("tokenAddress", "") or "")[:6]
+        if amt:
+            holdings.append({"symbol": sym, "amount": amt, "usd": round(amt * price, 2)})
+        usd += amt * price
+    holdings.sort(key=lambda h: h["usd"], reverse=True)
+    return {"handle": prof["handle"], "userId": prof["userId"], "solAddress": prof["solAddress"],
+            "evmAddress": prof["evmAddress"], "usdTotal": round(usd, 2),
+            "holdings": holdings, "empty": usd < 0.01}
+
+
 def resolve_trade_id(auth, token_address, network_id=None):
     """Find the user's trade id for a token (needed to attach a thesis). Prefers an
     active/open trade, falls back to the most recent closed one."""
@@ -380,6 +402,9 @@ def main():
             print(f"HTTP {status}", file=sys.stderr)
         print(text)
         sys.exit(0 if status == 200 else 1)
+
+    elif cmd == "balances":
+        print(json.dumps(account_summary(), indent=2))
 
     elif cmd == "logout":
         logout()
