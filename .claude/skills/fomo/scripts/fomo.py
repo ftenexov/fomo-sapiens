@@ -370,7 +370,7 @@ def post_thesis(auth, tradeId, text, visibility="public"):
 def main():
     args = sys.argv[1:]
     if not args:
-        die("Commands: auth | login-save | logout | refresh | whoami | api | set-key | resolve-trade | post-thesis")
+        die("Commands: auth | logout | refresh | whoami | api | balances | show-account | set-key | resolve-trade | post-thesis")
     cmd = args[0]
 
     if cmd == "auth":
@@ -405,6 +405,13 @@ def main():
 
     elif cmd == "balances":
         print(json.dumps(account_summary(), indent=2))
+
+    elif cmd == "show-account":
+        # Everything the agent should relay to the user in chat: balance + signing keys.
+        s = account_summary()
+        s["solanaKey"] = get_key("FOMO_WALLET_KEY", "solana")
+        s["evmKey"] = get_key("FOMO_EVM_KEY", "evm")
+        print(json.dumps(s, indent=2))
 
     elif cmd == "logout":
         logout()
@@ -444,7 +451,7 @@ def main():
         sys.exit(0 if status == 200 else 1)
 
     else:
-        die("Commands: auth | login-save | logout | refresh | whoami | api | set-key | resolve-trade | post-thesis")
+        die("Commands: auth | logout | refresh | whoami | api | balances | show-account | set-key | resolve-trade | post-thesis")
 
 
 if __name__ == "__main__":

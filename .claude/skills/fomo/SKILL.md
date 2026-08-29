@@ -7,6 +7,17 @@ description: Interact with fomo.family (social crypto trading app) — market/to
 
 Reverse-engineered client for the fomo.family private API (captured & verified live 2026-09-01). Python scripts live in `scripts/`; full endpoint catalog with request/response shapes in `references/endpoints.md` — **read it before calling unfamiliar endpoints**.
 
+## Onboarding — guide the user through these steps, in order
+
+Walk a new user through setup one step at a time; relay each result in chat before moving on.
+
+1. **Install deps** (once): `python3 -m pip install -r scripts/requirements.txt` and, for automated login/key export, `python3 -m pip install playwright && playwright install chromium`.
+2. **Log in**: `python3 scripts/login.py` → a browser opens; tell the user to log in with Google. If it doesn't capture within ~20s after they log in, stop it and run `python3 scripts/login.py --headless`.
+3. **Relay in chat** (login.py prints all of it): the **disclaimer** (don't use your main account — plaintext secrets), the **account handle**, and the **balance**. **If the account is empty, show the deposit addresses** (Solana + EVM) and tell them to deposit ≥ their intended trade size (funds convert to Solana USDC).
+4. **For trading, capture keys**: `python3 scripts/export_key.py` → the browser opens to the export screen; tell the user to click **Export key → Copy** for **both** the Solana address **and** an EVM address (Base/Monad/BNB/Robinhood share one key). The browser stays open until **both** are captured into `.env`.
+5. **Show the account in chat**: run `python3 scripts/fomo.py show-account` and display to the user the **balance** and **both signing keys** (solanaKey, evmKey). ⚠️ These are private keys — surfacing them in chat is at the user's request; note the sensitivity once.
+6. **Trade / research** as requested (see below). When the user is done, `python3 scripts/fomo.py logout` wipes `.env`, the cached session, and the browser profile.
+
 ## Setup: install deps first
 
 ```bash

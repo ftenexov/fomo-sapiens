@@ -67,12 +67,13 @@ def main():
                   f"avatar → Manage account → Export keys)")
         pg.evaluate("() => navigator.clipboard.writeText('__WAITING__')")
 
-        print("\n➡️  In the browser: click **Export key** for a chain, then **Copy** the key.")
-        print("   I'll capture it automatically. Do Solana and/or an EVM chain. (2 min timeout)\n")
+        print("\n➡️  In the browser, export BOTH keys — for each, click **Export key** then **Copy**:")
+        print("   1) Solana address   2) any EVM address (Base/Monad/BNB/Robinhood — same key)")
+        print("   The browser stays open until both are captured.\n")
         saved = {}
-        deadline = time.time() + 120
+        deadline = time.time() + 600   # 10 min; browser stays open until BOTH captured
         last = "__WAITING__"
-        while time.time() < deadline and len(saved) < 2:
+        while len(saved) < 2 and time.time() < deadline:
             try:
                 cb = (pg.evaluate("() => navigator.clipboard.readText()") or "").strip()
             except Exception:
@@ -84,12 +85,17 @@ def main():
                     env_key = "FOMO_WALLET_KEY" if kind == "solana" else "FOMO_EVM_KEY"
                     fomo._set_env_values({env_key: cb})   # store in .env (single source of truth)
                     saved[kind] = _mask(cb)
-                    print(f"✅ captured {kind} key {saved[kind]} → wrote {env_key} to .env")
+                    still = "EVM" if kind == "solana" else "Solana"
+                    print(f"✅ captured {kind} {saved[kind]}. "
+                          + (f"Now export the {still} key (Export key → Copy)." if len(saved) < 2 else "Both keys captured!"))
             time.sleep(2)
         ctx.close()
 
-    if saved:
-        print("\nDone. Stored:", ", ".join(f"{k} {v}" for k, v in saved.items()))
+    got = sorted(saved)
+    if len(saved) == 2:
+        print("\n✅ Both keys captured and written to .env (solana + evm).")
+    elif saved:
+        print(f"\n⚠️  Only captured: {', '.join(got)}. Re-run export_key.py and copy the missing one.")
     else:
         print("\nNo key captured (nothing valid copied). Re-run and click Export key → Copy.")
 
