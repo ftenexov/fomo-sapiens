@@ -22,10 +22,11 @@ PROFILE = os.path.join(os.path.dirname(fomo.AUTH_FILE), "browser",
 
 
 def classify(k):
+    # Privy copies the EVM key as 64 hex WITHOUT a 0x prefix; Solana as ~88-char base58.
+    if re.fullmatch(r"(0x)?[0-9a-fA-F]{64}", k):
+        return "evm"
     if re.fullmatch(r"[1-9A-HJ-NP-Za-km-z]{80,90}", k):
         return "solana"
-    if re.fullmatch(r"0x[0-9a-fA-F]{64}", k):
-        return "evm"
     return None
 
 
@@ -67,10 +68,16 @@ def main():
                   f"avatar → Manage account → Export keys)")
         pg.evaluate("() => navigator.clipboard.writeText('__WAITING__')")
 
-        print("\n➡️  In the browser, export BOTH keys — for each, click **Export key** then **Copy**:")
+        print("\n➡️  In the browser, export BOTH keys — for each, click **Export key** then **Copy key**:")
         print("   1) Solana address   2) any EVM address (Base/Monad/BNB/Robinhood — same key)")
         print("   The browser stays open until both are captured.\n")
-        saved = {}
+        saved = {}                     # pre-fill with keys already stored so we only wait for missing ones
+        if fomo.get_key("FOMO_WALLET_KEY", "solana"):
+            saved["solana"] = "(already set)"
+        if fomo.get_key("FOMO_EVM_KEY", "evm"):
+            saved["evm"] = "(already set)"
+        if saved:
+            print("Already have:", ", ".join(saved), "— export the rest.")
         deadline = time.time() + 600   # 10 min; browser stays open until BOTH captured
         last = "__WAITING__"
         while len(saved) < 2 and time.time() < deadline:
@@ -82,13 +89,14 @@ def main():
                 last = cb
                 kind = classify(cb)
                 if kind and kind not in saved:
+                    val = "0x" + cb if kind == "evm" and not cb.startswith("0x") else cb
                     env_key = "FOMO_WALLET_KEY" if kind == "solana" else "FOMO_EVM_KEY"
-                    fomo._set_env_values({env_key: cb})   # store in .env (single source of truth)
-                    saved[kind] = _mask(cb)
+                    fomo._set_env_values({env_key: val})   # store in .env (single source of truth)
+                    saved[kind] = _mask(val)
                     still = "EVM" if kind == "solana" else "Solana"
                     print(f"✅ captured {kind} {saved[kind]}. "
-                          + (f"Now export the {still} key (Export key → Copy)." if len(saved) < 2 else "Both keys captured!"))
-            time.sleep(2)
+                          + (f"Now export the {still} key (Export key → Copy key)." if len(saved) < 2 else "Both keys captured!"))
+            time.sleep(1)
         ctx.close()
 
     got = sorted(saved)
@@ -97,7 +105,7 @@ def main():
     elif saved:
         print(f"\n⚠️  Only captured: {', '.join(got)}. Re-run export_key.py and copy the missing one.")
     else:
-        print("\nNo key captured (nothing valid copied). Re-run and click Export key → Copy.")
+        print("\nNo key captured (nothing valid copied). Re-run and click Export key → Copy key.")
 
 
 if __name__ == "__main__":
