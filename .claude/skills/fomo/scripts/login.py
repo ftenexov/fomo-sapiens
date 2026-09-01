@@ -70,13 +70,17 @@ def main():
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         page.goto(FOMO_URL, wait_until="domcontentloaded")
         if not headless:
-            print("Log in to fomo.family in the browser window… (waiting up to 4 min)")
+            print("Log in to fomo.family in the browser window… capturing automatically the moment you're in.")
         deadline = time.time() + (30 if headless else 300)
+        ticks = 0
         while time.time() < deadline:
             tokens = _harvest(ctx)
             if tokens.get("token") and tokens["token"] not in ("null", '"deprecated"'):
                 break
-            time.sleep(2)
+            ticks += 1
+            if not headless and ticks % 5 == 0:
+                print("…waiting for login (captures within ~1s of finishing)")
+            time.sleep(1)   # poll every 1s so capture is near-instant after login
         ctx.close()
 
     if not (tokens and tokens.get("token") and tokens.get("refresh")):
