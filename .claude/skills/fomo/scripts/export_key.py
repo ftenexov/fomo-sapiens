@@ -1,24 +1,29 @@
 #!/usr/bin/env python3
-"""Semi-automated signing-key export.
+"""Semi-automated signing-key export — ONE chain per run.
 
 Private keys are NOT in the page (Privy holds them in a secure enclave) and Privy blocks
-fully-automated key reveal, so the final click is yours. This script does everything else:
-it drives the browser to fomo's key-export screen and then watches the clipboard — you click
-"Export key" for a chain and hit Copy, and it captures the key and stores it via set-key
-(masked; the secret is never printed).
+fully-automated reveal, so the final click is yours. This drives the browser to fomo's export
+screen and watches the clipboard; you click "Export key" then "Copy key" for the requested
+address, and it captures the key into .env (masked; the secret is never printed).
 
-    python3 export_key.py          # captures whatever chains you export, until you're done
+    python3 export_key.py solana   # capture the Solana key
+    python3 export_key.py evm       # capture the EVM key (Base/Monad/BNB/Robinhood share one)
 
-Needs the persistent login profile (run login.py first) and playwright.
+Run it once per chain (Solana first, then EVM). Needs the login profile (run login.py) + playwright.
 """
 import os
 import re
+import sys
 import time
 
 import fomo
 
 PROFILE = os.path.join(os.path.dirname(fomo.AUTH_FILE), "browser",
                        os.path.splitext(os.path.basename(fomo.AUTH_FILE))[0])
+PROMPTS = {
+    "solana": "the **Solana address**",
+    "evm": "a **Base address** (any EVM row — Base/Monad/BNB/Robinhood share one key)",
+}
 
 
 def classify(k):
@@ -34,7 +39,29 @@ def _mask(k):
     return f"{k[:4]}…{k[-4:]} (len {len(k)})"
 
 
+def open_export_screen(pg):
+    """Navigate: avatar -> Manage account -> Export keys -> acknowledge risks -> Continue."""
+    pg.goto("https://fomo.family", wait_until="domcontentloaded")
+    time.sleep(7)
+    try:
+        pg.mouse.click(1410, 32); time.sleep(2)
+        pg.click("text=Manage account", timeout=6000); time.sleep(3)
+        pg.click("text=Export keys", timeout=6000); time.sleep(3)
+        try:
+            pg.click("text=I acknowledge the risks", timeout=3000)
+        except Exception:
+            pg.mouse.click(548, 550)
+        time.sleep(1)
+        pg.click("text=Continue", timeout=6000); time.sleep(3)
+    except Exception as e:
+        print(f"(couldn't auto-open the export screen: {str(e)[:60]} — open it manually: "
+              f"avatar → Manage account → Export keys)")
+
+
 def main():
+    target = sys.argv[1].lower() if len(sys.argv) > 1 else ""
+    if target not in ("solana", "evm"):
+        fomo.die("Usage: export_key.py <solana|evm>   (run once per chain)")
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
@@ -42,6 +69,7 @@ def main():
 
     launch = dict(headless=False, args=["--disable-blink-features=AutomationControlled"],
                   ignore_default_args=["--enable-automation"])
+    captured = None
     with sync_playwright() as p:
         try:
             ctx = p.chromium.launch_persistent_context(PROFILE, channel="chrome", **launch)
@@ -50,37 +78,14 @@ def main():
         ctx.grant_permissions(["clipboard-read", "clipboard-write"])
         pg = ctx.pages[0] if ctx.pages else ctx.new_page()
         pg.set_viewport_size({"width": 1440, "height": 900})
-        pg.goto("https://fomo.family", wait_until="domcontentloaded")
-        time.sleep(7)
-        # Navigate: avatar -> Manage account -> Export keys -> acknowledge -> Continue
-        try:
-            pg.mouse.click(1410, 32); time.sleep(2)
-            pg.click("text=Manage account", timeout=6000); time.sleep(3)
-            pg.click("text=Export keys", timeout=6000); time.sleep(3)
-            try:
-                pg.click("text=I acknowledge the risks", timeout=3000)
-            except Exception:
-                pg.mouse.click(548, 550)
-            time.sleep(1)
-            pg.click("text=Continue", timeout=6000); time.sleep(3)
-        except Exception as e:
-            print(f"(couldn't auto-open the export screen: {str(e)[:60]} — open it manually: "
-                  f"avatar → Manage account → Export keys)")
+        open_export_screen(pg)
         pg.evaluate("() => navigator.clipboard.writeText('__WAITING__')")
 
-        print("\n➡️  In the browser, export BOTH keys — for each, click **Export key** then **Copy key**:")
-        print("   1) Solana address   2) any EVM address (Base/Monad/BNB/Robinhood — same key)")
-        print("   The browser stays open until both are captured.\n")
-        saved = {}                     # pre-fill with keys already stored so we only wait for missing ones
-        if fomo.get_key("FOMO_WALLET_KEY", "solana"):
-            saved["solana"] = "(already set)"
-        if fomo.get_key("FOMO_EVM_KEY", "evm"):
-            saved["evm"] = "(already set)"
-        if saved:
-            print("Already have:", ", ".join(saved), "— export the rest.")
-        deadline = time.time() + 600   # 10 min; browser stays open until BOTH captured
+        print(f"\n➡️  In the browser: click **Export key** then **Copy key** for {PROMPTS[target]}.")
+        print("   (the plain 'Copy' button only copies the public address — use 'Copy key')\n")
+        deadline = time.time() + 300   # 5 min
         last = "__WAITING__"
-        while len(saved) < 2 and time.time() < deadline:
+        while time.time() < deadline:
             try:
                 cb = (pg.evaluate("() => navigator.clipboard.readText()") or "").strip()
             except Exception:
@@ -88,24 +93,20 @@ def main():
             if cb and cb != last:
                 last = cb
                 kind = classify(cb)
-                if kind and kind not in saved:
-                    val = "0x" + cb if kind == "evm" and not cb.startswith("0x") else cb
-                    env_key = "FOMO_WALLET_KEY" if kind == "solana" else "FOMO_EVM_KEY"
-                    fomo._set_env_values({env_key: val})   # store in .env (single source of truth)
-                    saved[kind] = _mask(val)
-                    still = "EVM" if kind == "solana" else "Solana"
-                    print(f"✅ captured {kind} {saved[kind]}. "
-                          + (f"Now export the {still} key (Export key → Copy key)." if len(saved) < 2 else "Both keys captured!"))
+                if kind == target:
+                    captured = "0x" + cb if kind == "evm" and not cb.startswith("0x") else cb
+                    break
+                elif kind:
+                    print(f"(that looks like the {kind} key — I need the {target} key; "
+                          f"click Export key → Copy key on {PROMPTS[target]})")
             time.sleep(1)
         ctx.close()
 
-    got = sorted(saved)
-    if len(saved) == 2:
-        print("\n✅ Both keys captured and written to .env (solana + evm).")
-    elif saved:
-        print(f"\n⚠️  Only captured: {', '.join(got)}. Re-run export_key.py and copy the missing one.")
-    else:
-        print("\nNo key captured (nothing valid copied). Re-run and click Export key → Copy key.")
+    if not captured:
+        fomo.die(f"No {target} key captured. Re-run and click Export key → Copy key for {PROMPTS[target]}.")
+    env_key = "FOMO_WALLET_KEY" if target == "solana" else "FOMO_EVM_KEY"
+    fomo._set_env_values({env_key: captured})
+    print(f"✅ captured {target} key {_mask(captured)} → wrote {env_key} to .env")
 
 
 if __name__ == "__main__":

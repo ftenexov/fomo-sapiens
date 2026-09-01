@@ -14,7 +14,10 @@ Walk a new user through setup one step at a time; relay each result in chat befo
 1. **Install deps** (once): `python3 -m pip install -r scripts/requirements.txt` and, for automated login/key export, `python3 -m pip install playwright && playwright install chromium`.
 2. **Log in**: `python3 scripts/login.py` → a browser opens; tell the user to log in with Google. If it doesn't capture within ~20s after they log in, stop it and run `python3 scripts/login.py --headless`.
 3. **Relay in chat** (login.py prints all of it): the **disclaimer** (don't use your main account — plaintext secrets), the **account handle**, and the **balance**. **If the account is empty, show the deposit addresses** (Solana + EVM) and tell them to deposit ≥ their intended trade size (funds convert to Solana USDC).
-4. **For trading, capture keys**: `python3 scripts/export_key.py` → the browser opens to the export screen; tell the user to click **Export key → Copy key** for **both** the Solana address **and** an EVM address (Base/Monad/BNB/Robinhood share one key). The browser stays open until **both** are captured into `.env`.
+4. **For trading, capture keys — do the two chains as SEPARATE steps:**
+   - 4a. `python3 scripts/export_key.py solana` → browser opens to the export screen; tell the user to click **Export key → Copy key** on the **Solana address**. It captures and closes. Confirm it succeeded.
+   - 4b. Then `python3 scripts/export_key.py evm` → browser opens the export screen again; tell the user to click **Export key → Copy key** on a **Base (EVM) address** (Base/Monad/BNB/Robinhood share one key). It captures and closes.
+   - Always say **"Copy key"** — the plain **"Copy"** button only copies the public address.
 5. **Show the account in chat**: run `python3 scripts/fomo.py show-account` and display to the user the **balance** and **both signing keys** (solanaKey, evmKey). ⚠️ These are private keys — surfacing them in chat is at the user's request; note the sensitivity once.
 6. **Trade / research** as requested (see below). When the user is done, `python3 scripts/fomo.py logout` wipes `.env`, the cached session, and the browser profile.
 
@@ -119,7 +122,7 @@ python3 scripts/swap.py status  <relaySwapId>                                   
 
 Rules:
 - **Why a key is needed:** reads/quotes/thesis posting work with just the pasted token, but *executing* a trade requires signing a transaction. fomo signs inside the Privy iframe (key reconstructed from shares) and Privy's server signing API needs fomo's app secret (which we don't have) — so the only way to sign outside the browser is the raw key. Only `execute` needs it; `quote` never does.
-- **Getting the key:** run `python3 scripts/export_key.py` — it opens the browser to fomo's export screen; the user clicks **Export key → Copy key** for a chain and it captures the key into `.env` automatically (masked; never printed). Privy blocks fully-automated reveal, so that one click is the user's. Keys don't expire — one-time per account.
+- **Getting the key:** run `python3 scripts/export_key.py solana` then `python3 scripts/export_key.py evm` (one chain per run) — each opens the export screen; the user clicks **Export key → Copy key** for that address and it captures the key into `.env` (masked; never printed). Privy blocks fully-automated reveal, so that click is the user's. Keys don't expire — one-time per account.
 - Signing needs `FOMO_WALLET_KEY` (base58 solana secret key, exported by the user from fomo's wallet-export UI). Never echo, log, or store this key; read it from env only.
 - **Always run `quote` and show the user `swapUsdValue`, `expectedOut`, `priceImpactPct`, and any warning, and get explicit confirmation before `execute`** — unless they already gave a standing instruction with exact amounts.
 - Amounts are raw base units (`3000000` = $3 USDC). Sanity-check magnitude before executing; never guess decimals — look them up (see token-resolution note above).

@@ -52,9 +52,10 @@ python3 scripts/login.py --headless  # later: refresh tokens from the saved sess
 
 > ⚠️ **Don't use your main fomo.family account.** This stores session tokens (and, if you trade, your private key) in plaintext. Use a separate account with limited funds. login.py prints this on every login.
 
-**Keys (only needed to trade):** private keys are **not** in the page (Privy keeps them in a secure enclave) and Privy blocks fully-automated reveal, so there's one human click. `scripts/export_key.py` makes it painless — it drives the browser to the export screen; you click **Export key → Copy key** for a chain, and it captures the key from the clipboard into `.env` (masked; the secret is never printed):
+**Keys (only needed to trade):** private keys are **not** in the page (Privy keeps them in a secure enclave) and Privy blocks fully-automated reveal, so there's one human click. `scripts/export_key.py <solana|evm>` makes it painless — run it once per chain; it drives the browser to the export screen and you click **Export key → Copy key** for that address (masked; the secret is never printed):
 ```bash
-python3 scripts/export_key.py   # then click Export key + Copy key in the browser
+python3 scripts/export_key.py solana   # click Export key → Copy key on the Solana row
+python3 scripts/export_key.py evm      # then again for a Base (EVM) row
 ```
 Or set a key manually: `python3 scripts/fomo.py set-key solana <key>` / paste into `.env`. Keys don't expire — a one-time step per account.
 
