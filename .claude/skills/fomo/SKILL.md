@@ -7,6 +7,25 @@ description: Interact with fomo.family (social crypto trading app) — market/to
 
 Reverse-engineered client for the fomo.family private API (captured & verified live 2026-09-01). Python scripts live in `scripts/`; full endpoint catalog with request/response shapes in `references/endpoints.md` — **read it before calling unfamiliar endpoints**.
 
+## What you can do (and how to ask)
+
+The user talks in plain language; map their intent to the actions below. If they seem new or unsure, offer this menu and start with **"set me up."**
+
+| The user says… | You do |
+|---|---|
+| "set me up" / "log me in" / first use | Run the **Onboarding** steps below (login → relay disclaimer/balance/deposit → optionally export keys). |
+| "what's my balance / portfolio?" | `python3 scripts/fomo.py balances` and report total + holdings. |
+| "where do I deposit?" / "add funds" | Show the Solana + EVM deposit addresses (`balances` has them); funds convert to Solana USDC. |
+| "what's trending?" | `POST /proxy/trendingTokens`. |
+| "research X" / "what's the thesis on X?" | Run the **Thesis analysis playbook** (details, warnings, holders, theses, chart). |
+| "buy $N of X" | Resolve the token+chain, check warnings, quote, then `swap.py execute` (needs a funded account + key). |
+| "sell X" / "sell 50% of X" | Read the balance, compute the raw amount, `swap.py` (Solana) or `swap_evm.py` (EVM). |
+| "post a thesis for X" | Read others' theses first, then `fomo.py post-thesis`. |
+| "who's winning?" / leaderboard | `GET /v2/leaderboard[/24h|/7d|/30d]`. |
+| "log me out" | `python3 scripts/fomo.py logout` (wipes tokens, keys, session). |
+
+**First-time / no-clue path:** (1) "set me up" → onboarding; (2) deposit USDC to the shown address; (3) "what's trending?" or "research \<token\>"; (4) "buy $5 of \<token\>"; (5) optionally "post a thesis." Always start tiny — this is an unofficial API on real money, on a burner account (never the user's main).
+
 ## Onboarding — guide the user through these steps, in order
 
 Walk a new user through setup one step at a time; relay each result in chat before moving on.
@@ -165,6 +184,40 @@ Rules:
 ## Deposits
 
 There is no deposit API to call. Depositing = sending funds to the user's embedded wallets (from `whoami`): USDC/SOL to `solAddress`, or EVM assets to `evmAddress`. Fiat on-ramp is Crossmint inside the app (limits in `GET /config`: min $5, max $2500/day). To help with a deposit: show the addresses, then watch `GET /v2/users/{userId}/balances` for arrival.
+
+## Examples (concrete commands)
+
+```bash
+# ── first-time setup ──
+python3 scripts/login.py                       # log in; relay disclaimer + balance + deposit addr
+python3 scripts/export_key.py solana           # (to trade) capture Solana key
+python3 scripts/export_key.py evm              # (to trade) capture EVM key
+python3 scripts/fomo.py show-account           # balance + both keys
+
+# ── check state ──
+python3 scripts/fomo.py balances               # portfolio value + holdings
+python3 scripts/fomo.py api POST /proxy/trendingTokens '{}'          # trending
+python3 scripts/fomo.py api GET  /v2/leaderboard/24h                 # leaderboard
+
+# ── research a token (Base example) ──
+python3 scripts/fomo.py api POST /proxy/filterTokens  '["<addr>:8453"]'    # resolve + market data
+python3 scripts/fomo.py api POST /proxy/tokenWarnings '{"address":"<addr>","networkId":8453}'
+python3 scripts/fomo.py api GET '/feed/token/sortedThesis?tokenAddress=<addr>&networkId=8453&afterTime=<ms>&beforeTime=<ms>&limit=40&threshold=50'
+
+# ── buy $5 (USDC → token); Solana buys AND EVM-token buys both go through swap.py ──
+python3 scripts/swap.py quote   EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v:1399811149 <addr>:<chainId> 5000000
+python3 scripts/swap.py execute EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v:1399811149 <addr>:<chainId> 5000000
+
+# ── sell ──
+python3 scripts/swap.py     execute <mint>:1399811149 EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v:1399811149 <rawAmount>   # Solana token
+python3 scripts/swap_evm.py execute <addr>:<evmChainId> <rawAmount>                                                          # EVM token
+
+# ── post a thesis, then wrap up ──
+python3 scripts/fomo.py post-thesis <addr> <chainId> "your thesis text"
+python3 scripts/fomo.py logout
+```
+
+Amounts are raw base units: USDC has 6 decimals ($5 = `5000000`); most tokens have 18 ($X = `X * 10**18`). For a "sell N%" request, read the raw balance from `balances` and take that fraction — don't eyeball decimals.
 
 ## Caveats
 
