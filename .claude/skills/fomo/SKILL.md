@@ -18,6 +18,7 @@ The user talks in plain language; map their intent to the actions below. If they
 | "where do I deposit?" / "add funds" | Show the Solana + EVM deposit addresses (`balances` has them); funds convert to Solana USDC. |
 | "what's trending?" | `POST /proxy/trendingTokens`. |
 | "research X" / "what's the thesis on X?" | Run the **Thesis analysis playbook** (details, warnings, holders, theses, chart). |
+| "research the top N trending tokens and tell me why they go up" | `trendingTokens` → take the top N → run the **Thesis analysis playbook** on each → synthesize per-token drivers (see the **Trending research** example). |
 | "buy $N of X" | Resolve the token+chain, check warnings, quote, then `swap.py execute` (needs a funded account + key). |
 | "sell X" / "sell 50% of X" | Read the balance, compute the raw amount, `swap.py` (Solana) or `swap_evm.py` (EVM). |
 | "post a thesis for X" | Read others' theses first, then `fomo.py post-thesis`. |
@@ -198,6 +199,18 @@ python3 scripts/fomo.py show-account           # balance + both keys
 python3 scripts/fomo.py balances               # portfolio value + holdings
 python3 scripts/fomo.py api POST /proxy/trendingTokens '{}'          # trending
 python3 scripts/fomo.py api GET  /v2/leaderboard/24h                 # leaderboard
+
+# ── research the top 3 trending tokens: why are they going up? (verified 2026-09-03) ──
+python3 scripts/fomo.py api POST /proxy/trendingTokens '{}'          # list of 50; take [:3]; each has token.address, token.networkId, priceUSD, marketCap, change24, volume24, holders
+# then, per token (<addr>,<net> from the list above; NOW/WK = epoch ms now / 7 days ago):
+python3 scripts/fomo.py api POST /proxy/tokenWarnings '{"address":"<addr>","networkId":<net>}'   # {"warnings":[], "disableBuying", "disableSelling"}
+python3 scripts/fomo.py api GET '/hodlers/top?tokens=%5B%7B%22address%22%3A%22<addr>%22%2C%22networkId%22%3A<net>%7D%5D'   # NOTE: `tokens` = URL-encoded JSON array [{address,networkId}]; tokenAddress/networkId params → 400
+python3 scripts/fomo.py api GET '/hodlers/devs?tokenAddress=<addr>&networkId=<net>'             # devHoldings[] — who the devs are and whether they still hold
+python3 scripts/fomo.py api GET '/feed/token/sortedThesis?tokenAddress=<addr>&networkId=<net>&afterTime=<WK>&beforeTime=<NOW>&limit=20&threshold=0'
+# sortedThesis → responseObject.items[]: comment.comment (text), comment.numLikes, userHandle, isDev,
+#   authorTrade.{usdValue, percentageUnrealizedPnl, closedAt}  ← weight theses by position size + PnL; closedAt != null means the author already exited
+# hodlers/top → responseObject[0].topHolders[]: user.{userHandle,followers}, value, pnl, averageEntryPrice, comment.comment (the holder's thesis)
+# Synthesize per token: the concrete driver (revenue/buybacks, narrative/branding, cult mission…), holder quality/concentration, warnings, and who's exiting.
 
 # ── research a token (Base example) ──
 python3 scripts/fomo.py api POST /proxy/filterTokens  '["<addr>:8453"]'    # resolve + market data
