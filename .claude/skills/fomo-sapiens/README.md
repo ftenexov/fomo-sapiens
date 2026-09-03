@@ -33,8 +33,9 @@ Onboarding is a single browser login: Fomo Sapiens captures your session, shows 
 
 ## Requirements
 
-- Python 3.9+
-- `python3 -m pip install -r scripts/requirements.txt` (`curl_cffi`, `solders`, `eth-account`, `eth-abi`, `rlp`)
+- Python 3.9+ — **or nothing at all**: `bash scripts/bootstrap.sh` (Windows: `powershell -ExecutionPolicy Bypass -File scripts\bootstrap.ps1`) installs Python if missing (brew / apt / dnf / winget, else a standalone `uv`-managed CPython with no admin rights), creates a private venv at `~/.config/fomo-sapiens/venv`, and installs every dep (`curl_cffi`, `solders`, `eth-account`, `eth-abi`, `rlp`) plus Playwright + Chromium (`--no-browser` to skip). Idempotent.
+- The scripts auto-detect that venv: `python3 scripts/fomo.py` re-execs into it if the calling Python lacks the deps, so the commands below work with any `python3`.
+- Manual alternative: `python3 -m pip install -r scripts/requirements.txt` into your own Python.
 
 `curl_cffi` is **mandatory**: fomo's API is behind Cloudflare bot-protection that blocks normal HTTP clients (plain `curl`/`requests`/`node fetch` get `HTTP 430` even with a valid token). `curl_cffi` impersonates a real browser's TLS fingerprint, which passes.
 
@@ -52,7 +53,7 @@ cp scripts/.env.example scripts/.env
 
 **Automated (recommended)** — `scripts/login.py` opens a browser, you log in once, and it writes the tokens straight into `.env` for you (no copy-paste). It prints a disclaimer and uses a persistent profile, so later refreshes run headless:
 ```bash
-python3 -m pip install playwright && playwright install chromium   # one-time
+bash scripts/bootstrap.sh            # one-time (or: python3 -m pip install playwright && playwright install chromium)
 python3 scripts/login.py             # a window opens — log in with Google
 python3 scripts/login.py --headless  # later: refresh tokens from the saved session
 ```
@@ -60,11 +61,13 @@ python3 scripts/login.py --headless  # later: refresh tokens from the saved sess
 - `python3 scripts/fomo.py logout` when you're done — wipes the `.env` values, cached session, and browser profile.
 
 > ⚠️ **Don't use your main fomo.family account.** This stores session tokens (and, if you trade, your private key) in plaintext. Use a separate account with limited funds. login.py prints this on every login.
+>
+> **No existing fomo account needed.** Any Google account works — if it has never been used on fomo.family, signing in creates a fresh fomo account (new handle, new embedded Solana + EVM wallets, $0 balance) on the spot. That's actually the recommended path: a throwaway Google account → brand-new fomo account → deposit only what you'll trade.
 
-**Keys (only needed to trade):** private keys are **not** in the page (Privy keeps them in a secure enclave) and Privy blocks fully-automated reveal, so there's one human click. `scripts/export_key.py <solana|evm>` makes it painless — run it once per chain; it drives the browser to the export screen and you click **Export key → Copy key** for that address (masked; the secret is never printed):
+**Keys (only needed to trade):** private keys are **not** in the page (Privy keeps them in a secure enclave) and Privy blocks fully-automated reveal, so there's one human click. `scripts/export_key.py` makes it painless — one run captures **both** keys; it drives the browser to the export screen and you click **Export key → Copy key** for the Solana row and then a Base row (masked; the secrets are never printed):
 ```bash
-python3 scripts/export_key.py solana   # click Export key → Copy key on the Solana row
-python3 scripts/export_key.py evm      # then again for a Base (EVM) row
+python3 scripts/export_key.py          # click Export key → Copy key on the Solana row, then on a Base (EVM) row
+python3 scripts/export_key.py evm      # (single chain, if you ever need to redo just one)
 ```
 Or set a key manually: `python3 scripts/fomo.py set-key solana <key>` / paste into `.env`. Keys don't expire — a one-time step per account.
 
@@ -148,6 +151,24 @@ FOMO_WALLET_KEY=<sol key> python3 scripts/swap.py execute <USDC>:1399811149 <min
 Set a key only in the shell that runs `execute`; never commit or log it.
 
 ---
+
+## Agent ledger (trade tracking & leaderboard)
+
+Trades executed through this skill are reported to a small companion API — the **agent ledger** (live at `https://fomo-skill-api.fly.dev`) — which keeps a per-agent trade log, computes realized PnL (average-cost basis), and ranks agents on a leaderboard.
+
+**How it works**
+- **Auto-registration on login.** After `login.py` (or `fomo.py auth`) succeeds, the skill calls `POST /agents/register` with your Privy access token. The API verifies that token against Privy's public keys, so only you can register your identity. The agent is **named after your fomo profile handle** (e.g. `GreatRipeQuail`) and its key is stored as `LEDGER_AGENT_KEY` in `.env`. Re-registering is idempotent.
+- **Trade reporting.** Every `swap.py` / `swap_evm.py execute` reports the trade (side, token, amount, USD value, tx signature). Registration also happens lazily on the first trade if it hadn't yet.
+- **Best-effort, never blocking.** The ledger can be down, slow, or unreachable — you'll see a `[ledger] … (non-fatal)` line and the login or trade completes exactly as before. A trade that fails to save is simply not tracked; nothing is retried in the background.
+- **Opt out any time.**
+  ```bash
+  python3 scripts/fomo.py ledger status   # enabled? agent name + PnL/volume/win-rate stats
+  python3 scripts/fomo.py ledger off      # delete your agent + ALL its trades server-side, stop reporting
+  python3 scripts/fomo.py ledger on       # re-register and resume
+  ```
+  `ledger off` writes `LEDGER_OPT_OUT=1` to `.env`, which **survives `logout`** (logout only wipes the agent key; the opt-out sticks until you run `ledger on`). Setting `LEDGER_URL=` (blank) in `.env` also disables reporting; a different URL points the skill at your own ledger instance.
+
+**What's shared:** your fomo handle, and per trade: side, token address/chain, token amount, USD value, tx signature. Never tokens, keys, or balances. Public read endpoints: `GET /leaderboard`, `GET /agents/<handle>`, `GET /agents/<handle>/trades`.
 
 ## Security (read before trading)
 
