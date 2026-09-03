@@ -1,6 +1,15 @@
-# fomo skill — setup, usage & FAQ
+# 🧠 Fomo Sapiens
 
-An agent skill for interacting with [fomo.family](https://fomo.family) (a social crypto trading app): market/token research, thesis feeds & analysis, portfolio, quotes, posting theses, and executing swaps.
+**An AI agent skill that researches, trades, and writes theses on [fomo.family](https://fomo.family) — driven entirely by natural language.**
+
+Point your agent at fomo.family and it can:
+- **Research** any token — fundamentals, risk/scam flags, holder distribution, price history.
+- **Read the room** — pull the community's theses and synthesize a bull/bear view weighted by each author's real PnL.
+- **Trade** — quote and execute swaps on Solana *and* EVM chains (Base, Robinhood, BSC, Monad, Ethereum), with buys and sells both live-verified.
+- **Post its own thesis** after a buy, grounded in the data it just gathered.
+- **Manage the account** — balance, deposits, portfolio — from requests like *"research the top trending tokens,"* *"buy $5 of X,"* or *"sell half my BUWA."*
+
+Onboarding is a single browser login: Fomo Sapiens captures your session, shows your balance and deposit address, and (for trading) walks you through exporting your signing keys — then gets out of the way.
 
 > ⚠️ **Unofficial & use-at-your-own-risk.** It is not endorsed by fomo, can break without notice, and touches real funds. Read the Security section before using trading. You are responsible for your account and money.
 
@@ -79,7 +88,7 @@ Then verify:
 python3 scripts/fomo.py whoami          # confirms which account resolved
 ```
 
-- Tokens auto-refresh. The skill caches them in `~/.config/fomo-skill/*.json`; `.env` is the bootstrap. When the refresh token eventually dies, re-paste fresh tokens into `.env` and run `python3 scripts/fomo.py reseed`.
+- Tokens auto-refresh. The skill caches them in `~/.config/fomo-sapiens/*.json`; `.env` is the bootstrap. When the refresh token eventually dies, re-paste fresh tokens into `.env` and run `python3 scripts/fomo.py reseed`.
 - `.env` is git-ignored. **Never commit it** — it contains tokens and (if set) private keys in plaintext.
 
 ### Alternative: paste without a file
@@ -91,7 +100,7 @@ python3 scripts/fomo.py set-key evm    <key>
 
 ### Multiple accounts
 
-Prefix commands with `FOMO_PROFILE=<name>` — each account gets its own isolated store (`~/.config/fomo-skill/<name>.json`):
+Prefix commands with `FOMO_PROFILE=<name>` — each account gets its own isolated store (`~/.config/fomo-sapiens/<name>.json`):
 ```bash
 FOMO_PROFILE=alice python3 scripts/fomo.py auth '<alice tokens>'
 FOMO_PROFILE=alice python3 scripts/fomo.py whoami
@@ -144,7 +153,7 @@ Set a key only in the shell that runs `execute`; never commit or log it.
 
 This skill is intentionally simple about secrets, which means **you** must be careful:
 
-- Privy tokens are stored **in plaintext** at `~/.config/fomo-skill/*.json` (mode 600). Anyone with read access to that file can act as your fomo account until the tokens expire.
+- Privy tokens are stored **in plaintext** at `~/.config/fomo-sapiens/*.json` (mode 600). Anyone with read access to that file can act as your fomo account until the tokens expire.
 - Private keys are read from **environment variables** and used to sign locally. They are never written to disk by the skill — but env vars can leak via your shell history, process listings, or crash logs. Prefer exporting a key just-in-time and unsetting it after.
 - A private key controls **all** funds in that wallet, not just what you're trading. Treat export as high-risk.
 - This is an unofficial API on real money. Start with tiny amounts.

@@ -1,11 +1,11 @@
 ---
-name: fomo
-description: Interact with fomo.family (social crypto trading app) — market/token research, thesis analysis, portfolio, watchlist, deposits, and live trading (solana swaps). Use when the user mentions fomo, fomo.family, trading memecoins, thesis feeds, or their fomo portfolio.
+name: fomo-sapiens
+description: Fomo Sapiens — research, trade, and write theses on fomo.family (social crypto trading app). Market/token research, thesis analysis, portfolio, deposits, and live trading (Solana + EVM swaps). Use when the user mentions fomo, fomo.family, trading memecoins, thesis feeds, or their fomo portfolio.
 ---
 
-# fomo.family integration
+# Fomo Sapiens
 
-Reverse-engineered client for the fomo.family private API (captured & verified live 2026-09-01). Python scripts live in `scripts/`; full endpoint catalog with request/response shapes in `references/endpoints.md` — **read it before calling unfamiliar endpoints**.
+A reverse-engineered agent client for the fomo.family private API (captured & verified live 2026-09-01). Python scripts live in `scripts/`; full endpoint catalog with request/response shapes in `references/endpoints.md` — **read it before calling unfamiliar endpoints**.
 
 ## What you can do (and how to ask)
 
@@ -77,7 +77,7 @@ copy(JSON.stringify({version:2,accessToken:localStorage.getItem('privy:token'),r
 Then:
 
 ```bash
-python3 scripts/fomo.py auth '<pasted json>'   # stores to ~/.config/fomo-skill/auth.json (chmod 600)
+python3 scripts/fomo.py auth '<pasted json>'   # stores to ~/.config/fomo-sapiens/auth.json (chmod 600)
 python3 scripts/fomo.py whoami                 # resolves userId + wallet addresses, caches them
 ```
 
@@ -86,7 +86,7 @@ python3 scripts/fomo.py whoami                 # resolves userId + wallet addres
 
 ### Multiple accounts (profiles)
 
-Set `FOMO_PROFILE=<name>` to keep accounts side by side — each gets its own `~/.config/fomo-skill/<name>.json` (chmod 600). Set trading keys per shell for the active account.
+Set `FOMO_PROFILE=<name>` to keep accounts side by side — each gets its own `~/.config/fomo-sapiens/<name>.json` (chmod 600). Set trading keys per shell for the active account.
 
 ```bash
 FOMO_PROFILE=alice python3 scripts/fomo.py auth '<alice tokens>'

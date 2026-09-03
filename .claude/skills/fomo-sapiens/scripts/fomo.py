@@ -104,11 +104,11 @@ def logout():
 
 def _auth_file():
     """Which account's stored tokens to use. Precedence:
-    FOMO_AUTH_FILE (explicit path) > FOMO_PROFILE (~/.config/fomo-skill/<profile>.json) > default.
+    FOMO_AUTH_FILE (explicit path) > FOMO_PROFILE (~/.config/fomo-sapiens/<profile>.json) > default.
     Set FOMO_PROFILE per shell to keep multiple accounts side by side."""
     if os.environ.get("FOMO_AUTH_FILE"):
         return os.environ["FOMO_AUTH_FILE"]
-    base = os.path.expanduser("~/.config/fomo-skill")
+    base = os.path.expanduser("~/.config/fomo-sapiens")
     prof = os.environ.get("FOMO_PROFILE")
     return os.path.join(base, f"{prof}.json" if prof else "auth.json")
 
