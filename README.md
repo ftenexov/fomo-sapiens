@@ -109,6 +109,10 @@ Everything is a normal request — the agent picks the right action, shows you q
 - Signing happens locally; keys are never sent to fomo. `logout` wipes the `.env`, cached session, and browser profile.
 - This is an unofficial API on real money - start tiny.
 
+## License
+
+Released under the [MIT License](LICENSE).
+
 ---
 
 *Not affiliated with fomo.family or Privy. For research and personal use.*
