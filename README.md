@@ -77,6 +77,29 @@ python3 .claude/skills/fomo-sapiens/scripts/fomo.py balances
 
 ---
 
+## Usage examples
+
+Once you're set up, just talk to your agent in plain language:
+
+- *"Set me up on fomo"* — logs in, shows your balance and deposit address.
+- *"What's my portfolio worth right now?"* — total value + every holding.
+- *"Where do I deposit?"* — your Solana and EVM deposit addresses.
+- *"What's trending on fomo?"* — the current trending tokens.
+- *"Research BUWA — is it safe?"* — market cap, liquidity, holder distribution, and scam/risk flags.
+- *"What's the community thesis on \<token\>?"* — pulls holders' theses and summarizes the bull/bear case, weighted by each author's real PnL.
+- *"Research the top 5 trending tokens and tell me why they're pumping."*
+- *"Buy $5 of \<token\>."* — resolves the chain, checks warnings, quotes, and executes.
+- *"Buy $10 of \<token\> on Base."* — same, for an EVM-chain token.
+- *"Sell half my \<token\>."* / *"Sell all my \<token\>."*
+- *"Buy $5 of \<token\>, then research it and post a thesis based on the fundamentals."*
+- *"Who's winning?"* — the 24h / 7d / 30d leaderboard.
+- *"How much did that last trade cost me?"* — reads the fee/slippage from your balance delta.
+- *"Log me out and wipe everything."* — clears tokens, keys, session, and browser profile.
+
+Everything is a normal request — the agent picks the right action, shows you quotes and risk warnings before spending, and reports back.
+
+---
+
 ## Security
 
 - Session tokens and, if you trade, your exported private keys are stored **in plaintext** in a local `.env` (git-ignored). Anyone with read access to that machine can act as the account. Use a **separate account with limited funds**.
