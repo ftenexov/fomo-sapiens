@@ -55,7 +55,8 @@ def _harvest(ctx, helper=None, verbose=False):
             handle = pg.wait_for_function(_HARVEST_JS, timeout=2000, polling=250)
             t = handle.json_value()
             if verbose:
-                print(f"   [page] {url[:60]} token={'yes' if t.get('token') and t['token'] not in ('null', '\"deprecated\"') else 'no'}")
+                live = t.get("token") and t["token"] not in ("null", '"deprecated"')
+                print(f"   [page] {url[:60]} token={'yes' if live else 'no'}")
             if t and t.get("token"):
                 return t
         except Exception as e:
