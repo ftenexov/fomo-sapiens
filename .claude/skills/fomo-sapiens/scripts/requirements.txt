@@ -1,4 +1,4 @@
-# fomo skill Python deps
+# Fomo Sapiens Python deps
 curl_cffi>=0.7      # browser TLS impersonation — required; fomo's Cloudflare blocks plain clients (HTTP 430)
 solders>=0.21       # solana transaction signing (swap.py execute)
 eth-account>=0.11   # EVM userOp + EIP-7702 signing (swap_evm.py)
