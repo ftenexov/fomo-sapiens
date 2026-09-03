@@ -62,18 +62,21 @@ It installs as a [Claude Code](https://claude.com/claude-code) skill - drop the 
 
 ## Quick start
 
-```bash
-python3 -m pip install -r .claude/skills/fomo-sapiens/scripts/requirements.txt
-python3 -m pip install playwright && playwright install chromium   # for automated login/export
+Fomo Sapiens runs *inside* your AI agent (e.g. [Claude Code](https://claude.com/claude-code)) — you don't run anything by hand, you just talk to it.
 
-python3 .claude/skills/fomo-sapiens/scripts/login.py        # log in; shows balance + deposit address
-# deposit USDC to the shown Solana address, then:
-python3 .claude/skills/fomo-sapiens/scripts/export_key.py solana   # (to trade) capture keys
-python3 .claude/skills/fomo-sapiens/scripts/export_key.py evm
-python3 .claude/skills/fomo-sapiens/scripts/fomo.py balances
-```
+**What you need**
+- A **fomo.family account** — you sign in with a **Google account**. Use a fresh/burner Google account, not your main one.
+- A little **USDC** to trade with (optional — research, theses, and quotes work with no funds).
 
-…or just talk to your agent: *"set me up,"* *"what's trending?,"* *"buy $5 of \<token\>."* See [`SKILL.md`](.claude/skills/fomo-sapiens/SKILL.md) for the full command reference and [`README.md`](.claude/skills/fomo-sapiens/README.md) for the setup guide and FAQ.
+**Getting started — just tell your agent:**
+- *"Set me up on fomo"* → it opens a browser, you log in with Google once, and it captures your session, then shows your **balance** and **deposit address**.
+- Send some **USDC** to that address (deposits convert to Solana USDC, which trades spend).
+- Then go: *"what's trending?"*, *"research \<token\>"*, *"buy $5 of \<token\>"* — see the examples below.
+
+**Exporting your keys (only needed to place trades)**
+Trading needs your wallet's signing keys, and for security they live in fomo's own vault — so there's one manual click. Your agent handles the rest: it opens fomo's **Export keys** screen and asks you to click **Export key → Copy key** for each chain (Solana, then an EVM one). It captures the key automatically. **The chat guides you through every step** — you never paste a key by hand.
+
+For the full command reference see [`SKILL.md`](.claude/skills/fomo-sapiens/SKILL.md); for the detailed setup guide and FAQ see the skill [`README.md`](.claude/skills/fomo-sapiens/README.md).
 
 ---
 
