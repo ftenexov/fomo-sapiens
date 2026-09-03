@@ -6,8 +6,9 @@ fully-automated reveal, so the final click is yours. This drives the browser to 
 screen and watches the clipboard; you click "Export key" then "Copy key" for the requested
 address, and it captures the key into .env (masked; the secret is never printed).
 
-    python3 export_key.py solana   # capture the Solana key
-    python3 export_key.py evm       # capture the EVM key (Base/Monad/BNB/Robinhood share one)
+    python3 export_key.py           # DEFAULT: both keys in one browser session (click Copy key twice)
+    python3 export_key.py solana    # only the Solana key
+    python3 export_key.py evm       # only the EVM key (Base/Monad/BNB/Robinhood share one)
 
 Run it once per chain (Solana first, then EVM). Needs the login profile (run login.py) + playwright.
 """
@@ -16,6 +17,7 @@ import re
 import sys
 import time
 
+import _deps  # noqa: F401
 import fomo
 
 PROFILE = os.path.join(os.path.dirname(fomo.AUTH_FILE), "browser",
@@ -58,10 +60,14 @@ def open_export_screen(pg):
               f"avatar → Manage account → Export keys)")
 
 
+ENV_KEYS = {"solana": "FOMO_WALLET_KEY", "evm": "FOMO_EVM_KEY"}
+
+
 def main():
-    target = sys.argv[1].lower() if len(sys.argv) > 1 else ""
-    if target not in ("solana", "evm"):
-        fomo.die("Usage: export_key.py <solana|evm>   (run once per chain)")
+    target = sys.argv[1].lower() if len(sys.argv) > 1 else "both"
+    if target not in ("solana", "evm", "both"):
+        fomo.die("Usage: export_key.py [both|solana|evm]   (default: both — one browser session, both keys)")
+    needed = ["solana", "evm"] if target == "both" else [target]
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
@@ -69,7 +75,14 @@ def main():
 
     launch = dict(headless=False, args=["--disable-blink-features=AutomationControlled"],
                   ignore_default_args=["--enable-automation"])
-    captured = None
+    captured = {}
+
+    def prompt():
+        want = [k for k in needed if k not in captured]
+        print(f"\n➡️  In the browser: click **Export key** then **Copy key** for {PROMPTS[want[0]]}."
+              + (f"  (then the same for {PROMPTS[want[1]]})" if len(want) > 1 else ""))
+        print("   (the plain 'Copy' button only copies the public address — use 'Copy key')\n", flush=True)
+
     with sync_playwright() as p:
         try:
             ctx = p.chromium.launch_persistent_context(PROFILE, channel="chrome", **launch)
@@ -81,11 +94,10 @@ def main():
         open_export_screen(pg)
         pg.evaluate("() => navigator.clipboard.writeText('__WAITING__')")
 
-        print(f"\n➡️  In the browser: click **Export key** then **Copy key** for {PROMPTS[target]}.")
-        print("   (the plain 'Copy' button only copies the public address — use 'Copy key')\n")
+        prompt()
         deadline = time.time() + 300   # 5 min
         last = "__WAITING__"
-        while time.time() < deadline:
+        while time.time() < deadline and any(k not in captured for k in needed):
             try:
                 cb = (pg.evaluate("() => navigator.clipboard.readText()") or "").strip()
             except Exception:
@@ -93,20 +105,24 @@ def main():
             if cb and cb != last:
                 last = cb
                 kind = classify(cb)
-                if kind == target:
-                    captured = "0x" + cb if kind == "evm" and not cb.startswith("0x") else cb
-                    break
-                elif kind:
-                    print(f"(that looks like the {kind} key — I need the {target} key; "
-                          f"click Export key → Copy key on {PROMPTS[target]})")
+                if kind in needed and kind not in captured:
+                    captured[kind] = "0x" + cb if kind == "evm" and not cb.startswith("0x") else cb
+                    print(f"✅ captured {kind} key {_mask(captured[kind])}", flush=True)
+                    if any(k not in captured for k in needed):
+                        prompt()
+                elif kind and kind not in needed:
+                    print(f"(that looks like the {kind} key — I need the {needed[0]} key; "
+                          f"click Export key → Copy key on {PROMPTS[needed[0]]})")
             time.sleep(1)
         ctx.close()
 
-    if not captured:
-        fomo.die(f"No {target} key captured. Re-run and click Export key → Copy key for {PROMPTS[target]}.")
-    env_key = "FOMO_WALLET_KEY" if target == "solana" else "FOMO_EVM_KEY"
-    fomo._set_env_values({env_key: captured})
-    print(f"✅ captured {target} key {_mask(captured)} → wrote {env_key} to .env")
+    missing = [k for k in needed if k not in captured]
+    if captured:
+        fomo._set_env_values({ENV_KEYS[k]: v for k, v in captured.items()})
+        print("✅ wrote " + ", ".join(f"{ENV_KEYS[k]} ({k} {_mask(v)})" for k, v in captured.items()) + " to .env")
+    if missing:
+        fomo.die(f"No {', '.join(missing)} key captured. Re-run `export_key.py {' '.join(missing) if len(missing)==1 else 'both'}` "
+                 f"and click Export key → Copy key for {' / '.join(PROMPTS[k] for k in missing)}.")
 
 
 if __name__ == "__main__":

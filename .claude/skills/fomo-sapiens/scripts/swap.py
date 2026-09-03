@@ -14,6 +14,7 @@ tokenId = "<address>:<chainId>"; solana chainId=1399811149. rawAmount is base un
 """
 import base64, json, os, sys
 
+import _deps  # noqa: F401
 from curl_cffi import requests
 
 import fomo  # reuse the authed, TLS-impersonating client

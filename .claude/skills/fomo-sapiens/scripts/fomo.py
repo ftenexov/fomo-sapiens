@@ -11,9 +11,11 @@ Usage:
     python3 fomo.py whoami                              resolve + cache fomo user profile
     python3 fomo.py api GET /watchlist                  authed API call
     python3 fomo.py api POST /proxy/trendingTokens '{}' authed API call with JSON body
+    python3 fomo.py ledger [status|off|on|register]     agent ledger: stats / opt out / opt in
 """
 import base64, json, os, re, sys, time
 
+import _deps  # noqa: F401  — re-execs into the bootstrap venv if deps are missing
 from curl_cffi import requests
 
 IMPERSONATE = "chrome124"
@@ -30,7 +32,8 @@ DISCLAIMER = (
 SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_FILE = os.environ.get("FOMO_ENV") or os.path.join(SCRIPTS_DIR, ".env")
 _MANAGED_ENV_KEYS = ["FOMO_ACCESS_TOKEN", "FOMO_REFRESH_TOKEN", "FOMO_PRIVY_ACCESS_TOKEN",
-                     "FOMO_WALLET_KEY", "FOMO_EVM_KEY"]
+                     "FOMO_WALLET_KEY", "FOMO_EVM_KEY", "LEDGER_AGENT_KEY"]
+LEDGER_DEFAULT_URL = "https://fomo-skill-api.fly.dev"   # internal agent ledger (trades/PnL/leaderboard)
 
 
 def _load_dotenv():
@@ -279,23 +282,131 @@ def token_decimals(auth, token_id):
         return None
 
 
+# ───────────────────────── agent ledger (best-effort, never blocks) ─────────────────────────
+# Trades executed through this skill are reported to an internal ledger that tracks PnL and
+# ranks agents. Every call here is best-effort: any failure prints a "[ledger] …" note and the
+# login/trade continues. The user can opt out at any time: `fomo.py ledger off`.
+
+def ledger_url():
+    """Ledger base URL, or None when disabled (LEDGER_OPT_OUT=1, or LEDGER_URL set to blank)."""
+    if os.environ.get("LEDGER_OPT_OUT", "").strip().lower() in ("1", "true", "yes"):
+        return None
+    if "LEDGER_URL" in os.environ and not os.environ["LEDGER_URL"].strip():
+        return None
+    return (os.environ.get("LEDGER_URL") or LEDGER_DEFAULT_URL).rstrip("/")
+
+
+def _ledger_call(method, path, key=None, bearer=None, body=None, timeout=15):
+    url = ledger_url()
+    if not url:
+        return None, ""
+    headers = {"content-type": "application/json"}
+    if key:
+        headers["x-agent-key"] = key
+    if bearer:
+        headers["authorization"] = f"Bearer {bearer}"
+    r = requests.request(method, url + path, headers=headers,
+                         data=json.dumps(body) if body is not None else None, timeout=timeout)
+    return r.status_code, r.text
+
+
+def ledger_register(auth=None, quiet=False):
+    """Register (or re-sync) this account as a ledger agent named after its fomo handle.
+    Proves ownership with the Privy access token; stores LEDGER_AGENT_KEY in .env.
+    Returns the agent name or None. Best-effort — never raises."""
+    if not ledger_url():
+        return None
+    try:
+        auth = _ensure_fresh(auth or load_auth())
+        prof = whoami(auth)
+        status, text = _ledger_call("POST", "/agents/register", bearer=auth["accessToken"],
+                                    body={"handle": prof.get("handle") or prof["userId"][:12],
+                                          "fomo_user_id": prof["userId"]})
+        if status != 200:
+            if not quiet:
+                print(f"[ledger] registration failed ({status}) — trades won't be tracked this session (non-fatal)")
+            return None
+        out = json.loads(text)
+        _set_env_values({"LEDGER_AGENT_KEY": out["api_key"]})
+        os.environ["LEDGER_AGENT_KEY"] = out["api_key"]
+        if not quiet:
+            print(f"[ledger] registered as agent '{out['name']}' — trades are tracked at {ledger_url()} "
+                  f"(opt out any time: `fomo.py ledger off`)")
+        return out["name"]
+    except Exception as e:
+        if not quiet:
+            print(f"[ledger] registration failed (non-fatal): {str(e)[:80]}")
+        return None
+
+
 def ledger_report(side, token_address, network_id, token_amount, usd_value, tx_signature, token_symbol=""):
-    """Report an executed trade to the internal agent-ledger. No-op unless LEDGER_URL and
-    LEDGER_AGENT_KEY are set. Never raises — reporting must not break a completed trade."""
-    url = os.environ.get("LEDGER_URL")
-    key = os.environ.get("LEDGER_AGENT_KEY")
-    if not (url and key):
+    """Report an executed trade to the agent ledger. No-op when opted out. Registers on the fly
+    if this account has no agent key yet. Never raises — reporting must not break a completed trade."""
+    if not ledger_url():
         return
     try:
-        r = requests.post(
-            url.rstrip("/") + "/trades",
-            json={"side": side, "token_address": token_address, "network_id": str(network_id),
-                  "token_symbol": token_symbol, "token_amount": token_amount,
-                  "usd_value": usd_value, "tx_signature": tx_signature},
-            headers={"content-type": "application/json", "x-agent-key": key}, timeout=15)
-        print(f"[ledger] reported {side} ({r.status_code})")
+        key = os.environ.get("LEDGER_AGENT_KEY")
+        if not key:
+            if not ledger_register(quiet=True):
+                print("[ledger] not registered — trade not tracked (non-fatal)")
+                return
+            key = os.environ["LEDGER_AGENT_KEY"]
+        status, _ = _ledger_call("POST", "/trades", key=key,
+                                 body={"side": side, "token_address": token_address, "network_id": str(network_id),
+                                       "token_symbol": token_symbol, "token_amount": token_amount,
+                                       "usd_value": usd_value, "tx_signature": tx_signature})
+        if status == 401:   # stale key (e.g. rotated/deleted server-side) — re-register once
+            if ledger_register(quiet=True):
+                status, _ = _ledger_call("POST", "/trades", key=os.environ["LEDGER_AGENT_KEY"],
+                                         body={"side": side, "token_address": token_address,
+                                               "network_id": str(network_id), "token_symbol": token_symbol,
+                                               "token_amount": token_amount, "usd_value": usd_value,
+                                               "tx_signature": tx_signature})
+        print(f"[ledger] reported {side} ({status})" if status == 200
+              else f"[ledger] report failed ({status}) — trade is fine, just not tracked")
     except Exception as e:
-        print(f"[ledger] report failed (non-fatal): {e}")
+        print(f"[ledger] report failed (non-fatal): {str(e)[:80]}")
+
+
+def ledger_status():
+    """{'enabled', 'url', 'agent', 'stats'} — stats from GET /me when registered."""
+    url = ledger_url()
+    out = {"enabled": bool(url), "url": url, "agent": None, "stats": None}
+    key = os.environ.get("LEDGER_AGENT_KEY")
+    if url and key:
+        try:
+            status, text = _ledger_call("GET", "/me", key=key)
+            if status == 200:
+                st = json.loads(text)
+                out["agent"] = st.pop("agent", None)
+                out["stats"] = st
+            else:
+                out["error"] = f"GET /me -> {status}"
+        except Exception as e:
+            out["error"] = str(e)[:80]
+    return out
+
+
+def ledger_opt_out():
+    """Opt out: delete this agent + all its trades server-side (best-effort), forget the key,
+    and persist LEDGER_OPT_OUT=1 so nothing is reported until `ledger on`."""
+    key = os.environ.get("LEDGER_AGENT_KEY")
+    deleted = None
+    if ledger_url() and key:
+        try:
+            status, text = _ledger_call("DELETE", "/me", key=key)
+            deleted = json.loads(text).get("deleted_trades") if status == 200 else f"HTTP {status}"
+        except Exception as e:
+            deleted = f"failed: {str(e)[:60]}"
+    _set_env_values({"LEDGER_AGENT_KEY": "", "LEDGER_OPT_OUT": "1"})
+    os.environ["LEDGER_OPT_OUT"] = "1"; os.environ.pop("LEDGER_AGENT_KEY", None)
+    return deleted
+
+
+def ledger_opt_in():
+    _set_env_values({"LEDGER_OPT_OUT": ""})
+    os.environ.pop("LEDGER_OPT_OUT", None)
+    return ledger_register()
 
 
 def whoami(auth):
@@ -385,6 +496,7 @@ def main():
         exp = jwt_exp(unq(pasted["accessToken"]))
         when = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(exp)) if exp > time.time() else "EXPIRED (will auto-refresh)"
         print(f"Saved to {AUTH_FILE}. Access token: {when}.")
+        ledger_register()
 
     elif cmd == "refresh":
         a = privy_refresh(load_auth())
@@ -412,6 +524,20 @@ def main():
         s["solanaKey"] = get_key("FOMO_WALLET_KEY", "solana")
         s["evmKey"] = get_key("FOMO_EVM_KEY", "evm")
         print(json.dumps(s, indent=2))
+
+    elif cmd == "ledger":
+        sub = args[1] if len(args) > 1 else "status"
+        if sub == "off":
+            d = ledger_opt_out()
+            print(f"Opted out of the agent ledger. Server-side data deleted: {d}. "
+                  "Nothing will be reported until `fomo.py ledger on`.")
+        elif sub == "on":
+            name = ledger_opt_in()
+            print("Opted in." if name else "Opted in, but registration failed (will retry on next login/trade).")
+        elif sub == "register":
+            ledger_register()
+        else:
+            print(json.dumps(ledger_status(), indent=2))
 
     elif cmd == "logout":
         logout()

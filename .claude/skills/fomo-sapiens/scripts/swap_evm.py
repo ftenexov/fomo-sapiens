@@ -21,6 +21,7 @@ units of the token you're selling (get decimals from balances/filterTokens — s
 """
 import json, os, sys, time
 
+import _deps  # noqa: F401
 from curl_cffi import requests
 from eth_abi import encode
 from eth_utils import keccak

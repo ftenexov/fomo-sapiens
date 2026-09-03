@@ -8,6 +8,7 @@ refresh tokens headlessly.
 
     python3 login.py             # headed: a window opens — log in when prompted
     python3 login.py --headless  # reuse the saved session (must have logged in once)
+    python3 login.py --verbose   # print what each poll sees per tab (debugging capture)
     FOMO_PROFILE=alice python3 login.py   # per-account (separate browser profile)
 
 Requires (optional dep — only for this script):
@@ -17,6 +18,7 @@ import os
 import sys
 import time
 
+import _deps  # noqa: F401
 import fomo  # reuse profile-aware AUTH_FILE, save_auth, _unquote, whoami
 
 FOMO_URL = "https://fomo.family"
@@ -25,24 +27,41 @@ _stem = os.path.splitext(os.path.basename(fomo.AUTH_FILE))[0]  # 'auth' or profi
 PROFILE_DIR = os.path.join(os.path.dirname(fomo.AUTH_FILE), "browser", _stem)
 
 
-def _harvest(ctx):
-    """Read tokens from any open fomo.family page. Resilient to OAuth navigations
-    (the page hops to accounts.google.com and back, which destroys eval contexts)."""
-    for pg in ctx.pages:
+_HARVEST_JS = (
+    "() => ({"
+    "  token: localStorage.getItem('privy:token'),"
+    "  refresh: localStorage.getItem('privy:refresh_token'),"
+    "  pat: localStorage.getItem('privy:pat')"
+    "})"
+)
+
+
+def _harvest(ctx, helper=None, verbose=False):
+    """Read tokens from the helper tab first (a background fomo.family tab we never
+    navigate, so its URL can't go stale during the OAuth hop — localStorage is shared
+    across same-origin tabs), then any other fomo.family tab as a fallback.
+    Every per-page call is bounded (2s) — a hung tab must never stall the poll loop."""
+    pages = ([helper] if helper else []) + [pg for pg in ctx.pages if pg is not helper]
+    for pg in pages:
+        url = ""
         try:
-            if "fomo.family" not in (pg.url or ""):
+            url = pg.url or ""
+            if "fomo.family" not in url:
+                if verbose:
+                    print(f"   [skip] {url[:60]}")
                 continue  # tokens live only on the fomo.family origin, not google's
-            t = pg.evaluate(
-                "() => ({"
-                "  token: localStorage.getItem('privy:token'),"
-                "  refresh: localStorage.getItem('privy:refresh_token'),"
-                "  pat: localStorage.getItem('privy:pat')"
-                "})"
-            )
+            # wait_for_function is client-timed: it returns/raises within `timeout`
+            # even if the renderer is unresponsive (plain evaluate() has no timeout).
+            handle = pg.wait_for_function(_HARVEST_JS, timeout=2000, polling=250)
+            t = handle.json_value()
+            if verbose:
+                print(f"   [page] {url[:60]} token={'yes' if t.get('token') and t['token'] not in ('null', '\"deprecated\"') else 'no'}")
             if t and t.get("token"):
                 return t
-        except Exception:
-            continue  # mid-navigation context destroyed — try again next poll
+        except Exception as e:
+            if verbose:
+                print(f"   [err ] {url[:60]} {type(e).__name__}")
+            continue  # mid-navigation context destroyed / timed out — try again next poll
     return {}
 
 
@@ -50,10 +69,12 @@ def main():
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
-        fomo.die("Playwright not installed. Run:\n"
-                 "  python3 -m pip install playwright && playwright install chromium")
+        fomo.die("Playwright not installed. Run the bootstrap once (installs it + Chromium):\n"
+                 "  bash scripts/bootstrap.sh   (Windows: powershell -ExecutionPolicy Bypass -File scripts\\bootstrap.ps1)\n"
+                 "or: python3 -m pip install playwright && playwright install chromium")
 
     headless = "--headless" in sys.argv
+    verbose = "--verbose" in sys.argv or "-v" in sys.argv
     os.makedirs(PROFILE_DIR, exist_ok=True)
     # Hide automation so Google's OAuth doesn't refuse with "this browser may not be secure".
     launch = dict(
@@ -69,17 +90,23 @@ def main():
             ctx = p.chromium.launch_persistent_context(PROFILE_DIR, **launch)  # fallback: bundled chromium
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         page.goto(FOMO_URL, wait_until="domcontentloaded")
+        helper = None
         if not headless:
+            # Background helper tab on the fomo origin: the login tab hops to Google and
+            # back (Playwright's page.url can lag behind), so we poll this one instead.
+            helper = ctx.new_page()
+            helper.goto(FOMO_URL, wait_until="domcontentloaded")
+            page.bring_to_front()
             print("Log in to fomo.family in the browser window… capturing automatically the moment you're in.")
         deadline = time.time() + (30 if headless else 300)
         ticks = 0
         while time.time() < deadline:
-            tokens = _harvest(ctx)
+            tokens = _harvest(ctx, helper, verbose=verbose and ticks % 5 == 0)
             if tokens.get("token") and tokens["token"] not in ("null", '"deprecated"'):
                 break
             ticks += 1
             if not headless and ticks % 5 == 0:
-                print("…waiting for login (captures within ~1s of finishing)")
+                print(f"…waiting for login ({len(ctx.pages)} tab(s) open; captures within ~1s of finishing)", flush=True)
             time.sleep(1)   # poll every 1s so capture is near-instant after login
         ctx.close()
 
@@ -102,6 +129,7 @@ def main():
               f"({str(e)[:50]}); try `python3 fomo.py balances`.")
         return
     print(f"Logged in as {s['handle']} — tokens written to {fomo.ENV_FILE}")
+    fomo.ledger_register()   # best-effort: agent named after the fomo handle; opt out with `fomo.py ledger off`
     if s["empty"]:
         print("\n💸 This account is EMPTY — deposit before trading. Send funds to:")
         print(f"   Solana (SOL / USDC):  {s['solAddress']}")
