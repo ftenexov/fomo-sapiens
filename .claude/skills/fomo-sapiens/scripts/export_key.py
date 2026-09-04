@@ -4,7 +4,8 @@
 Private keys are NOT in the page (Privy holds them in a secure enclave) and Privy blocks
 fully-automated reveal, so the final click is yours. This drives the browser to fomo's export
 screen and watches the clipboard; you click "Export key" then "Copy key" for the requested
-address, and it captures the key into .env (masked; the secret is never printed).
+address, and it stores the key ENCRYPTED on your machine (masked; the secret is never
+printed). You never paste anything - just click "Copy key"; the script reads the clipboard.
 
     python3 export_key.py           # DEFAULT: both keys in one browser session (click Copy key twice)
     python3 export_key.py solana    # only the Solana key
@@ -60,7 +61,7 @@ def open_export_screen(pg):
               f"avatar → Manage account → Export keys)")
 
 
-ENV_KEYS = {"solana": "FOMO_WALLET_KEY", "evm": "FOMO_EVM_KEY"}
+# signing keys are persisted via fomo.set_key() - encrypted at rest, one file per account
 
 
 def main():
@@ -118,8 +119,10 @@ def main():
 
     missing = [k for k in needed if k not in captured]
     if captured:
-        fomo._set_env_values({ENV_KEYS[k]: v for k, v in captured.items()})
-        print("✅ wrote " + ", ".join(f"{ENV_KEYS[k]} ({k} {_mask(v)})" for k, v in captured.items()) + " to .env")
+        for k, v in captured.items():
+            fomo.set_key(k, v)   # encrypted at rest (Fernet), never written to .env in plaintext
+        print("🔒 stored (encrypted) " + ", ".join(f"{k} key {_mask(v)}" for k, v in captured.items())
+              + f" -> {fomo.keys_file()}")
     if missing:
         fomo.die(f"No {', '.join(missing)} key captured. Re-run `export_key.py {' '.join(missing) if len(missing)==1 else 'both'}` "
                  f"and click Export key → Copy key for {' / '.join(PROMPTS[k] for k in missing)}.")

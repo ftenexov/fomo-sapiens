@@ -4,5 +4,6 @@ solders>=0.21       # solana transaction signing (swap.py execute)
 eth-account>=0.11   # EVM userOp + EIP-7702 signing (swap_evm.py)
 eth-abi>=5.0        # ABI encoding for userOp hash / executeBatch calldata
 rlp>=4.0            # EIP-7702 authorization encoding
+cryptography>=42    # at-rest encryption of exported signing keys (Fernet)
 # optional — automated login (scripts/login.py); after install also run: playwright install chromium
 # playwright>=1.44

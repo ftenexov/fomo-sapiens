@@ -98,7 +98,7 @@ def logout():
     import shutil
     if os.path.exists(ENV_FILE):
         _set_env_values({k: "" for k in _MANAGED_ENV_KEYS})
-    for path in (AUTH_FILE, keys_file()):
+    for path in (AUTH_FILE, keys_file(), _secret_key_file()):
         try: os.remove(path)
         except FileNotFoundError: pass
     stem = os.path.splitext(os.path.basename(AUTH_FILE))[0]
@@ -182,20 +182,79 @@ def keys_file():
     return os.path.join(base, f"{stem}.keys.json")
 
 
+ENC_PREFIX = "enc:"
+
+
+def _secret_key_file():
+    """Local Fernet key that encrypts signing keys at rest. Kept next to the auth cache
+    (~/.config/fomo-sapiens/secret.key, chmod 600) - deliberately OUTSIDE the repo, so a
+    leaked or accidentally-committed keys file / .env is useless ciphertext without it.
+    Basic at-rest protection; not a defense against someone who can already read this dir."""
+    return os.path.join(os.path.dirname(AUTH_FILE), "secret.key")
+
+
+def _fernet():
+    from cryptography.fernet import Fernet   # ImportError handled by callers
+    p = _secret_key_file()
+    try:
+        with open(p, "rb") as f:
+            k = f.read().strip()
+        if k:
+            return Fernet(k)
+    except FileNotFoundError:
+        pass
+    k = Fernet.generate_key()
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        f.write(k)
+    return Fernet(k)
+
+
+def encrypt_secret(plaintext):
+    """Return enc:<fernet token>. If cryptography is not installed, store plaintext (with a
+    warning) rather than block key capture - run bootstrap to enable encryption."""
+    try:
+        return ENC_PREFIX + _fernet().encrypt(plaintext.encode()).decode()
+    except ImportError:
+        print("cryptography not installed - storing this key UNENCRYPTED. "
+              "Run scripts/bootstrap.sh to enable at-rest encryption.", file=sys.stderr)
+        return plaintext
+
+
+def decrypt_secret(value):
+    """Inverse of encrypt_secret. Plaintext (no enc: prefix) passes through unchanged, so
+    env-set keys and older plaintext stores keep working."""
+    if not value or not value.startswith(ENC_PREFIX):
+        return value
+    try:
+        from cryptography.fernet import InvalidToken
+    except ImportError:
+        die("This signing key is encrypted but the cryptography package is not installed. "
+            "Run scripts/bootstrap.sh, then retry.")
+    try:
+        return _fernet().decrypt(value[len(ENC_PREFIX):].encode()).decode()
+    except InvalidToken:
+        die("Could not decrypt the stored signing key (secret.key missing or changed). "
+            "Re-export it: python3 scripts/export_key.py")
+
+
 def get_key(env_name, field):
-    """Resolve a signing key: env var wins (just-in-time), else the per-account keys file.
-    field is 'solana' or 'evm'. Returns None if unset."""
+    """Resolve a signing key (decrypted): env var wins (just-in-time), else the per-account
+    keys file. field is 'solana' or 'evm'. Returns None if unset."""
     v = os.environ.get(env_name)
     if v:
-        return v.strip()
+        return decrypt_secret(v.strip())
     try:
         with open(keys_file()) as f:
-            return (json.load(f).get(field) or "").strip() or None
+            raw = (json.load(f).get(field) or "").strip()
     except FileNotFoundError:
         return None
+    return decrypt_secret(raw) or None
 
 
 def set_key(field, value):
+    """Store a signing key ENCRYPTED at rest in the per-account keys file."""
     path = keys_file()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     try:
@@ -203,7 +262,7 @@ def set_key(field, value):
             data = json.load(f)
     except FileNotFoundError:
         data = {}
-    data[field] = value.strip()
+    data[field] = encrypt_secret(value.strip())
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
         json.dump(data, f, indent=2)
