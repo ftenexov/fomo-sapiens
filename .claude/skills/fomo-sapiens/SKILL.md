@@ -19,7 +19,7 @@ The user talks in plain language; map their intent to the actions below. If they
 | "what's trending?" | `POST /proxy/trendingTokens`. |
 | "research X" / "what's the thesis on X?" | Run the **Thesis analysis playbook** (details, warnings, holders, theses, chart). |
 | "research the top N trending tokens and tell me why they go up" | `trendingTokens` → take the top N → run the **Thesis analysis playbook** on each → synthesize per-token drivers (see the **Trending research** example). |
-| "buy $N of X" | Resolve the token+chain, check warnings, quote, then `swap.py execute` — no confirmation step (see **Trading**). |
+| "buy $N of X" | Resolve the token+chain, check warnings, quote, then `swap.py execute` — no confirmation step (see **Trading**). After it fills, *ask* if they want a thesis — never auto-post. |
 | "sell X" / "sell 50% of X" | Read the balance, compute the raw amount, `swap.py` (Solana) or `swap_evm.py` (EVM). Just sell — no confirmation step. |
 | "post a thesis for X" | Read others' theses first, then `fomo.py post-thesis` (show the text as you post it; don't block on approval). |
 | "who's winning?" / leaderboard | `GET /v2/leaderboard[/24h|/7d|/30d]`. |
@@ -27,7 +27,7 @@ The user talks in plain language; map their intent to the actions below. If they
 | "stop tracking my trades" / "opt out" | `python3 scripts/fomo.py ledger off` (deletes the agent + its trades server-side, stops reporting). `ledger on` re-enables. |
 | "log me out" | `python3 scripts/fomo.py logout` (wipes tokens, keys, session; the ledger opt-out choice persists). |
 
-**First-time / no-clue path:** (1) "set me up" → onboarding (any Google account works — no fomo account needed beforehand; one is created on first sign-in); (2) deposit USDC to the shown address; (3) "what's trending?" or "research \<token\>"; (4) "buy $5 of \<token\>"; (5) optionally "post a thesis." The skill executes without asking for confirmation, so the user should state exact amounts. Always start tiny.
+**First-time / no-clue path:** (1) "set me up" → onboarding (any Google account works — no fomo account needed beforehand; one is created on first sign-in); (2) deposit USDC to the shown address; (3) "what's trending?" or "research \<token\>"; (4) "buy $5 of \<token\>"; (5) optionally have it post a thesis — it asks first, never auto-posts. The skill executes without asking for confirmation, so the user should state exact amounts. Always start tiny.
 
 ## Onboarding — guide the user through these steps, in order
 
@@ -37,7 +37,7 @@ Walk a new user through setup one step at a time; relay each result in chat befo
 2. **Log in**: `python3 scripts/login.py` → a browser opens; tell the user to log in with Google. **The Google account does NOT need an existing fomo account** — if it has never been used on fomo.family, signing in creates a brand-new fomo account from scratch (fresh handle + embedded Solana/EVM wallets, $0 balance). Tell the user this up front so they can use a throwaway Google account; the rest of onboarding is identical (an empty new account just needs a deposit, step 3). If it doesn't capture within ~20s after they log in, stop it and run `python3 scripts/login.py --headless`.
 3. **Relay in chat** (login.py prints all of it): the **account handle**, the **balance**, and the **ledger line** — login auto-registers the account on the agent ledger under its fomo handle (`[ledger] registered as agent '<handle>' …`); tell the user in one sentence that their trades will be tracked for PnL/leaderboard and that `ledger off` opts out at any time. If the line says registration failed, say so and move on — it's non-fatal and retried on the next login/trade. **If the account is empty, show the deposit addresses** (Solana + EVM) and tell them to deposit ≥ their intended trade size (funds convert to Solana USDC).
 4. **For trading, capture BOTH keys — always both, never just one, even if the immediate trade only needs one** (a Solana buy today is followed by an EVM sell tomorrow; capturing both once avoids a second browser round-trip and a stalled trade later):
-   - `python3 scripts/export_key.py` (default = both) → one browser window opens on the export screen. Tell the user to click **Export key → Copy key** on the **Solana address**, then **Export key → Copy key** on a **Base (EVM) address** (Base/Monad/BNB/Robinhood share one key). Order doesn't matter; it captures each as it lands and closes when it has both.
+   - `python3 scripts/export_key.py` (default = both) → one browser window opens on the export screen. Tell the user to click **Export key → Copy key** on the **Solana address**, then **Export key → Copy key** on a **Base (EVM) address** (Base/Monad/BNB/Robinhood share one key). **They only press "Copy key" - no pasting anywhere**; the script reads each key from the clipboard and stores it encrypted locally. Order doesn't matter; it captures each as it lands and closes when it has both.
    - If only one was captured (user closed early), re-run `python3 scripts/export_key.py <missing chain>` immediately — don't proceed with one key.
    - Always say **"Copy key"** — the plain **"Copy"** button only copies the public address.
 5. **Show the account in chat**: run `python3 scripts/fomo.py show-account` and display to the user the **balance** and **both signing keys** (solanaKey, evmKey). ⚠️ These are private keys — surfacing them in chat is at the user's request; note the sensitivity once.
@@ -147,8 +147,8 @@ python3 scripts/swap.py status  <relaySwapId>                                   
 
 Rules:
 - **Why a key is needed:** reads/quotes/thesis posting work with just the pasted token, but *executing* a trade requires signing a transaction. fomo signs inside the Privy iframe (key reconstructed from shares) and Privy's server signing API needs fomo's app secret (which we don't have) — so the only way to sign outside the browser is the raw key. Only `execute` needs it; `quote` never does.
-- **Getting the keys:** run `python3 scripts/export_key.py` (captures **both** Solana and EVM keys in one browser session — always both, never one) — the user clicks **Export key → Copy key** for the Solana address and then a Base address; each is captured into `.env` (masked; never printed). Privy blocks fully-automated reveal, so those clicks are the user's. Keys don't expire — one-time per account. If a trade needs a key that isn't stored, run the export (both keys) and then execute the trade without re-asking.
-- Signing needs `FOMO_WALLET_KEY` (base58 solana secret key, exported by the user from fomo's wallet-export UI). Never echo, log, or store this key; read it from env only.
+- **Getting the keys:** run `python3 scripts/export_key.py` (captures **both** Solana and EVM keys in one browser session — always both, never one) — the user clicks **Export key → Copy key** for the Solana address and then a Base address; each is captured from the clipboard and stored **encrypted at rest** (Fernet), never in `.env` (masked; never printed). **The user only clicks Export key -> Copy key and pastes nothing.** Privy blocks fully-automated reveal, so those clicks are the user's. Keys don't expire — one-time per account. If a trade needs a key that isn't stored, run the export (both keys) and then execute the trade without re-asking.
+- Signing needs `FOMO_WALLET_KEY` (base58 solana secret key, exported by the user from fomo's wallet-export UI). It is stored encrypted at rest and decrypted just-in-time to sign; never echo or log it.
 - **No confirmation step by default.** When the user asks to buy or sell, run `quote` and then `execute` in the same turn, and report `swapUsdValue`, `expectedOut`, `priceImpactPct`, and any warning **with the result**. Only pause for a go-ahead if the user explicitly asked to confirm first ("ask me before you execute", "quote only"), or if the quote carries a warning other than `NONE` / the token has `disableSelling`/`disableBuying` set / the amount is ambiguous (no amount given, or "sell some"). "Sell X" means sell the whole position; "sell N%" means that fraction of the raw balance.
 - Amounts are raw base units (`3000000` = $3 USDC). Sanity-check magnitude before executing; never guess decimals — look them up (see token-resolution note above).
 - Same-chain solana swaps confirm on-chain within seconds; verify via `GET /v2/users/{userId}/swaps` (newest first). Cross-chain (v2Swap) swaps: poll `swaps/v2/status?relaySwapId=` until `SUCCESS`.
@@ -170,9 +170,9 @@ python3 scripts/swap_evm.py execute <tokenAddress>:<chainId> <rawAmount>   # bui
 - First sell on a chain the account hasn't used auto-attaches an EIP-7702 delegate install (`eip7702Auth`); subsequent sells skip it. Handled automatically.
 - Verified: calldata/userOp-hash/7702-auth reproduce captured Robinhood+Base+Monad swaps byte-for-byte; **live key-signed sell executed 2026-09-03** (full BUWA position on Robinhood chain → 2.29 USDC on Solana, relay SUCCESS in ~1 min; ~3% bridge/relay cost on a $2.39 swap). Robinhood chain accepted a $2.39 sell with no minimum warning.
 
-## Posting a thesis (do this after every buy)
+## Posting a thesis (ask after a buy)
 
-**When the user buys a token through this skill, post a thesis for it afterward by default** (unless they say not to). A "thesis" is the top-level comment on your *own* trade — it's how fomo surfaces your rationale on the token's feed.
+**After a buy, ask the user whether they want you to write and post a thesis (do not post one automatically).** Only proceed if they say yes. A "thesis" is the top-level comment on your *own* trade — it's how fomo surfaces your rationale on the token's feed.
 
 Endpoint: `POST /trades/comment` with `{"tradeId": "<your trade id>", "comment": "<thesis text>", "visibility": "public"}`. Same endpoint serves theses and comments; when the tradeId is your own trade it renders as a thesis.
 

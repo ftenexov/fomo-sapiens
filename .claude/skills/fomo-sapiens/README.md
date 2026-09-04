@@ -6,10 +6,10 @@ Point your agent at fomo.family and it can:
 - **Research** any token — fundamentals, risk/scam flags, holder distribution, price history.
 - **Read the room** — pull the community's theses and synthesize a bull/bear view weighted by each author's real PnL.
 - **Trade** — quote and execute swaps on Solana *and* EVM chains (Base, Robinhood, BSC, Monad, Ethereum), with buys and sells both live-verified.
-- **Post its own thesis** after a buy, grounded in the data it just gathered.
+- **Post a thesis** on request after a buy (it offers, never auto-posts), grounded in the data it just gathered.
 - **Manage the account** — balance, deposits, portfolio — from requests like *"research the top trending tokens,"* *"buy $5 of X,"* or *"sell half my BUWA."*
 
-Onboarding is a single browser login: Fomo Sapiens captures your session, shows your balance and deposit address, and (for trading) walks you through exporting your signing keys — then gets out of the way.
+Onboarding is a single browser login: Fomo Sapiens captures your session, shows your balance and deposit address, and (for trading) walks you through exporting your signing keys — you just click **Copy key** for Solana then Base, paste nothing, and the keys are encrypted locally — then gets out of the way.
 
 > ⚠️ **Unofficial & use-at-your-own-risk.** It is not endorsed by fomo, can break without notice, and touches real funds. Read the Security section before using trading. You are responsible for your account and money.
 
@@ -23,7 +23,7 @@ Onboarding is a single browser login: Fomo Sapiens captures your session, shows 
 | Thesis analysis (read theses + trades + holders + charts) | token | ✅ verified live |
 | Portfolio: balances, swaps, watchlist | token | ✅ verified live |
 | Swap **quotes** | token | ✅ verified live |
-| **Post a thesis** after buying | token | ✅ verified live |
+| **Post a thesis** (offered after a buy) | token | ✅ verified live |
 | **Buy** any token (Solana or EVM) | token **+ Solana key** | ✅ built (Solana-origin) |
 | **Sell** a Solana token | token **+ Solana key** | ⚠️ built, not yet run with a real key |
 | **Sell** an EVM token (ETH/Base/BSC/Monad/Robinhood) | token **+ EVM key** | ⚠️ built, not yet run with a real key |
@@ -60,16 +60,16 @@ python3 scripts/login.py --headless  # later: refresh tokens from the saved sess
 - On first run this **creates/fills `.env`** with the token values (keys stay empty).
 - `python3 scripts/fomo.py logout` when you're done — wipes the `.env` values, cached session, and browser profile.
 
-> ⚠️ **Don't use your main fomo.family account.** This stores session tokens (and, if you trade, your private key) in plaintext. Use a separate account with limited funds. login.py prints this on every login.
+> ⚠️ **Don't use your main fomo.family account.** Session tokens are stored in plaintext on this machine (signing keys are encrypted at rest). Use a separate account with limited funds. login.py prints this on every login.
 >
 > **No existing fomo account needed.** Any Google account works — if it has never been used on fomo.family, signing in creates a fresh fomo account (new handle, new embedded Solana + EVM wallets, $0 balance) on the spot. That's actually the recommended path: a throwaway Google account → brand-new fomo account → deposit only what you'll trade.
 
-**Keys (only needed to trade):** private keys are **not** in the page (Privy keeps them in a secure enclave) and Privy blocks fully-automated reveal, so there's one human click. `scripts/export_key.py` makes it painless — one run captures **both** keys; it drives the browser to the export screen and you click **Export key → Copy key** for the Solana row and then a Base row (masked; the secrets are never printed):
+**Keys (only needed to trade):** private keys are **not** in the page (Privy keeps them in a secure enclave) and Privy blocks fully-automated reveal, so there's one human click. `scripts/export_key.py` makes it painless — one run captures **both** keys; it drives the browser to the export screen and you only click **Export key → Copy key** for the Solana row and then a Base row. **You paste nothing** - the script reads each key from your clipboard and stores it **encrypted at rest** (masked; the secrets are never printed):
 ```bash
 python3 scripts/export_key.py          # click Export key → Copy key on the Solana row, then on a Base (EVM) row
 python3 scripts/export_key.py evm      # (single chain, if you ever need to redo just one)
 ```
-Or set a key manually: `python3 scripts/fomo.py set-key solana <key>` / paste into `.env`. Keys don't expire — a one-time step per account.
+Or set a key manually: `python3 scripts/fomo.py set-key solana <key>` (also stored encrypted). Keys don't expire — a one-time step per account.
 
 **Manual** — log into fomo.family, open **DevTools → Console**, and run this to copy three ready-to-paste lines:
 ```js
@@ -79,7 +79,7 @@ FOMO_PRIVY_ACCESS_TOKEN=${JSON.parse(localStorage.getItem('privy:pat')||'null')}
 ```
 Paste over the matching lines in `.env`.
 
-**2) Keys (only if you'll trade).** Export from fomo/Privy "export wallet" and fill in:
+**2) Keys (only if you'll trade).** Use `python3 scripts/export_key.py` (or `fomo.py set-key`) - keys are stored **encrypted** in `~/.config/fomo-sapiens/`, not in `.env`. You can still paste raw keys into `.env` as a plaintext fallback:
 ```
 FOMO_WALLET_KEY=<solana base58 key>    # buys & Solana sells
 FOMO_EVM_KEY=<evm 0x-hex key>          # EVM-token sells
@@ -92,7 +92,7 @@ python3 scripts/fomo.py whoami          # confirms which account resolved
 ```
 
 - Tokens auto-refresh. The skill caches them in `~/.config/fomo-sapiens/*.json`; `.env` is the bootstrap. When the refresh token eventually dies, re-paste fresh tokens into `.env` and run `python3 scripts/fomo.py reseed`.
-- `.env` is git-ignored. **Never commit it** — it contains tokens and (if set) private keys in plaintext.
+- `.env` is git-ignored. **Never commit it** — it holds your session tokens (and any key you paste in as a plaintext fallback). Exported keys live **encrypted** in `~/.config/fomo-sapiens/`, not in `.env`.
 
 ### Alternative: paste without a file
 ```bash
@@ -175,7 +175,7 @@ Trades executed through this skill are reported to a small companion API — the
 This skill is intentionally simple about secrets, which means **you** must be careful:
 
 - Privy tokens are stored **in plaintext** at `~/.config/fomo-sapiens/*.json` (mode 600). Anyone with read access to that file can act as your fomo account until the tokens expire.
-- Private keys are read from **environment variables** and used to sign locally. They are never written to disk by the skill — but env vars can leak via your shell history, process listings, or crash logs. Prefer exporting a key just-in-time and unsetting it after.
+- Signing keys are stored **encrypted** (Fernet/AES) in `~/.config/fomo-sapiens/<profile>.keys.json`, using a key at `~/.config/fomo-sapiens/secret.key` (mode 600) that lives **outside the repo**; they are decrypted only just-in-time to sign. This is basic at-rest protection - anyone who can read *both* that keys file and secret.key can still recover the key, so keep the config dir private. (A key you paste into `.env` yourself stays plaintext.)
 - A private key controls **all** funds in that wallet, not just what you're trading. Treat export as high-risk.
 - This is an unofficial API on real money. Start with tiny amounts.
 
