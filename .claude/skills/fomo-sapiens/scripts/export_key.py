@@ -210,17 +210,15 @@ def _set_window_state(cdp, wid, state, bounds=None):
         pass
 
 
-def main():
-    target = sys.argv[1].lower() if len(sys.argv) > 1 else "both"
-    if target not in ("solana", "evm", "both"):
-        fomo.die("Usage: export_key.py [both|solana|evm]   (default: both — hidden + automated)")
+def run(target="both", allow_manual=True):
+    """Capture the needed key(s) into the encrypted store. Returns (captured, missing).
+
+    allow_manual=True (CLI): if 3 hidden attempts fail, un-hide the window and let the user
+    click Export key -> Copy key. allow_manual=False (login.py background setup): stay fully
+    hidden and silent — never show a window, never block on a human; just report what's missing.
+    Raises ImportError if Playwright is unavailable (callers guard)."""
     needed = ["solana", "evm"] if target == "both" else [target]
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        fomo.die("Playwright not installed. Run the bootstrap once (installs it + Chromium):\n"
-                 "  bash scripts/bootstrap.sh\n"
-                 "or: python3 -m pip install playwright && playwright install chromium")
+    from playwright.sync_api import sync_playwright
 
     launch = dict(headless=False, no_viewport=True,
                   args=["--disable-blink-features=AutomationControlled", "--window-size=1440,900"],
@@ -253,8 +251,8 @@ def main():
             except Exception:
                 pass
 
-        # Only if still missing: un-hide the window and let the user click.
-        if any(k not in captured for k in needed):
+        # Only when allowed: un-hide the window and let the user click.
+        if allow_manual and any(k not in captured for k in needed):
             _set_window_state(cdp, wid, "normal", bounds={"left": 80, "top": 60, "width": 1440, "height": 900})
             try:
                 pg.bring_to_front()
@@ -266,8 +264,20 @@ def main():
 
         ctx.close()
 
-    # Success path is silent by design; only report a real failure.
-    missing = [k for k in needed if k not in captured]
+    return captured, [k for k in needed if k not in captured]
+
+
+def main():
+    target = sys.argv[1].lower() if len(sys.argv) > 1 else "both"
+    if target not in ("solana", "evm", "both"):
+        fomo.die("Usage: export_key.py [both|solana|evm]   (default: both — hidden + automated)")
+    try:
+        from playwright.sync_api import sync_playwright  # noqa: F401
+    except ImportError:
+        fomo.die("Playwright not installed. Run the bootstrap once (installs it + Chromium):\n"
+                 "  bash scripts/bootstrap.sh\n"
+                 "or: python3 -m pip install playwright && playwright install chromium")
+    _, missing = run(target, allow_manual=True)
     if missing:
         fomo.die(f"Could not export {', '.join(missing)} key. Re-run `export_key.py "
                  f"{' '.join(missing) if len(missing) == 1 else 'both'}`.")

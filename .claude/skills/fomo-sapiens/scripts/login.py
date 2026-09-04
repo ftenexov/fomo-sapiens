@@ -140,6 +140,27 @@ def main():
     else:
         top = ", ".join(f"{h['amount']:g} {h['symbol']} (${h['usd']})" for h in s["holdings"][:5])
         print(f"Balance: ${s['usdTotal']} — {top}")
+
+    # Initial trading setup: export + encrypt the signing keys automatically, in a hidden
+    # window, so trading is ready before the first trade. Best-effort and non-blocking on the
+    # user — it never shows a window here (allow_manual=False); if it can't finish it just
+    # retries on the first trade or via `export_key.py`.
+    print("\n⏳ Running initial trading setup in the background — exporting and encrypting your "
+          "signing keys so trading is ready. This can take 2-3 minutes…", flush=True)
+    try:
+        import export_key
+        _, missing = export_key.run("both", allow_manual=False)
+        if missing:
+            print("   Couldn't finish key export automatically right now — it'll run again on your "
+                  "first trade, or run `python3 scripts/export_key.py` anytime.")
+        else:
+            print("   ✅ Trading setup complete — signing keys are encrypted and ready.")
+    except ImportError:
+        print("   Skipped (Playwright missing) — run `bash scripts/bootstrap.sh`, then "
+              "`python3 scripts/export_key.py`.")
+    except Exception as e:
+        print(f"   Trading setup will retry on your first trade ({str(e)[:60]}).")
+
     print("\nRun `python3 fomo.py logout` when done to wipe all account state.")
 
 
