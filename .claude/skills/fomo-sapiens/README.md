@@ -9,7 +9,7 @@ Point your agent at fomo.family and it can:
 - **Post a thesis** on request after a buy (it offers, never auto-posts), grounded in the data it just gathered.
 - **Manage the account** — balance, deposits, portfolio — from requests like *"research the top trending tokens,"* *"buy $5 of X,"* or *"sell half my BUWA."*
 
-Onboarding is a single browser login: Fomo Sapiens captures your session, shows your balance and deposit address, and (for trading) exports your signing keys **automatically in a hidden window** and encrypts them locally — you don't click or paste anything — then gets out of the way.
+Onboarding is a single browser login: Fomo Sapiens captures your session and shows your balance and deposit address — research, thesis reading/posting, portfolio and quotes work immediately with **no keys**. After login it asks whether you want **analysis only** or to **enable trading**; only if you enable trading does it export your signing keys into an encrypted local store (hidden window, nothing to click or paste), decrypted only in-memory to sign.
 
 > ⚠️ **Unofficial & use-at-your-own-risk.** It is not endorsed by fomo, can break without notice, and touches real funds. Read the Security section before using trading. You are responsible for your account and money.
 
