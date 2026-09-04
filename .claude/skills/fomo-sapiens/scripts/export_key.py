@@ -74,7 +74,7 @@ def main():
         fomo.die("Playwright not installed: python3 -m pip install playwright && playwright install chromium")
 
     launch = dict(headless=False, args=["--disable-blink-features=AutomationControlled"],
-                  ignore_default_args=["--enable-automation"])
+                  ignore_default_args=["--enable-automation"], chromium_sandbox=True)
     captured = {}
 
     def prompt():

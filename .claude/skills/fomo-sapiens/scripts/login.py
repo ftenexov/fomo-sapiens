@@ -82,6 +82,7 @@ def main():
         headless=headless,
         args=["--disable-blink-features=AutomationControlled"],
         ignore_default_args=["--enable-automation"],
+        chromium_sandbox=True,   # keep Chromium's sandbox on; without this Playwright passes --no-sandbox
     )
     tokens = None
     with sync_playwright() as p:
