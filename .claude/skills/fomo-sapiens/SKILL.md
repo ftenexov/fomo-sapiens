@@ -13,7 +13,7 @@ The user talks in plain language; map their intent to the actions below. If they
 
 | The user says… | You do |
 |---|---|
-| "set me up" / "log me in" / first use | Run the **Onboarding** steps below (login → relay disclaimer/balance/deposit → optionally export keys). |
+| "set me up" / "log me in" / first use | Run the **Onboarding** steps below (login → relay balance/deposit → optionally export keys). |
 | "what's my balance / portfolio?" | `python3 scripts/fomo.py balances` and report total + holdings. |
 | "where do I deposit?" / "add funds" | Show the Solana + EVM deposit addresses (`balances` has them); funds convert to Solana USDC. |
 | "what's trending?" | `POST /proxy/trendingTokens`. |
@@ -27,7 +27,7 @@ The user talks in plain language; map their intent to the actions below. If they
 | "stop tracking my trades" / "opt out" | `python3 scripts/fomo.py ledger off` (deletes the agent + its trades server-side, stops reporting). `ledger on` re-enables. |
 | "log me out" | `python3 scripts/fomo.py logout` (wipes tokens, keys, session; the ledger opt-out choice persists). |
 
-**First-time / no-clue path:** (1) "set me up" → onboarding (any Google account works — no fomo account needed beforehand; one is created on first sign-in); (2) deposit USDC to the shown address; (3) "what's trending?" or "research \<token\>"; (4) "buy $5 of \<token\>"; (5) optionally "post a thesis." The skill executes without asking for confirmation, so the user should state exact amounts. Always start tiny — this is an unofficial API on real money, on a burner account (never the user's main).
+**First-time / no-clue path:** (1) "set me up" → onboarding (any Google account works — no fomo account needed beforehand; one is created on first sign-in); (2) deposit USDC to the shown address; (3) "what's trending?" or "research \<token\>"; (4) "buy $5 of \<token\>"; (5) optionally "post a thesis." The skill executes without asking for confirmation, so the user should state exact amounts. Always start tiny.
 
 ## Onboarding — guide the user through these steps, in order
 
@@ -35,7 +35,7 @@ Walk a new user through setup one step at a time; relay each result in chat befo
 
 1. **Bootstrap** (once): `bash scripts/bootstrap.sh` (Windows: `powershell -ExecutionPolicy Bypass -File scripts\bootstrap.ps1`). It finds Python ≥ 3.9 or **installs one if the machine has none** (Homebrew / apt / dnf / winget, else a standalone `uv`-managed Python — no admin rights needed), builds a private venv in `~/.config/fomo-sapiens/venv`, and installs all deps plus Playwright + Chromium. Idempotent. Afterwards every `python3 scripts/...` command below works unchanged: the scripts re-exec into that venv automatically. If any script ever prints `Fomo Sapiens: Missing Python packages` or `python3: command not found`, run the bootstrap — don't hand-install.
 2. **Log in**: `python3 scripts/login.py` → a browser opens; tell the user to log in with Google. **The Google account does NOT need an existing fomo account** — if it has never been used on fomo.family, signing in creates a brand-new fomo account from scratch (fresh handle + embedded Solana/EVM wallets, $0 balance). Tell the user this up front so they can use a throwaway Google account; the rest of onboarding is identical (an empty new account just needs a deposit, step 3). If it doesn't capture within ~20s after they log in, stop it and run `python3 scripts/login.py --headless`.
-3. **Relay in chat** (login.py prints all of it): the **disclaimer** (don't use your main account — plaintext secrets), the **account handle**, the **balance**, and the **ledger line** — login auto-registers the account on the agent ledger under its fomo handle (`[ledger] registered as agent '<handle>' …`); tell the user in one sentence that their trades will be tracked for PnL/leaderboard and that `ledger off` opts out at any time. If the line says registration failed, say so and move on — it's non-fatal and retried on the next login/trade. **If the account is empty, show the deposit addresses** (Solana + EVM) and tell them to deposit ≥ their intended trade size (funds convert to Solana USDC).
+3. **Relay in chat** (login.py prints all of it): the **account handle**, the **balance**, and the **ledger line** — login auto-registers the account on the agent ledger under its fomo handle (`[ledger] registered as agent '<handle>' …`); tell the user in one sentence that their trades will be tracked for PnL/leaderboard and that `ledger off` opts out at any time. If the line says registration failed, say so and move on — it's non-fatal and retried on the next login/trade. **If the account is empty, show the deposit addresses** (Solana + EVM) and tell them to deposit ≥ their intended trade size (funds convert to Solana USDC).
 4. **For trading, capture BOTH keys — always both, never just one, even if the immediate trade only needs one** (a Solana buy today is followed by an EVM sell tomorrow; capturing both once avoids a second browser round-trip and a stalled trade later):
    - `python3 scripts/export_key.py` (default = both) → one browser window opens on the export screen. Tell the user to click **Export key → Copy key** on the **Solana address**, then **Export key → Copy key** on a **Base (EVM) address** (Base/Monad/BNB/Robinhood share one key). Order doesn't matter; it captures each as it lands and closes when it has both.
    - If only one was captured (user closed early), re-run `python3 scripts/export_key.py <missing chain>` immediately — don't proceed with one key.
@@ -68,9 +68,8 @@ Token model (verified against the `@privy-io/react-auth` 3.34.0 bundle):
 **Setup (automated, preferred)** — run `python3 scripts/login.py`; a browser opens, the user logs in once, and it writes the Privy tokens into `.env` automatically (persistent profile → later `login.py --headless` refreshes them). Needs `playwright` (`pip install playwright && playwright install chromium`). Falls back to the manual paste below if Playwright isn't available. If the headed poll doesn't capture within ~20s after the user logs in, stop it and run `python3 scripts/login.py --headless` — it harvests from the now-logged-in persistent profile.
 
 **On every login, the agent MUST relay to the user (login.py prints all of this):**
-1. **The disclaimer** — do NOT use your main fomo.family account; tokens and (if trading) the private key are stored in plaintext. Use a separate account with limited funds.
-2. **The account handle and balance.**
-3. **If the account is empty → the deposit addresses** (Solana for SOL/USDC, EVM for the rest). Tell the user to deposit before trading; funds convert to Solana USDC. Re-check with `python3 scripts/fomo.py balances`.
+1. **The account handle and balance.**
+2. **If the account is empty → the deposit addresses** (Solana for SOL/USDC, EVM for the rest). Tell the user to deposit before trading; funds convert to Solana USDC. Re-check with `python3 scripts/fomo.py balances`.
 
 Keep using this account until the user asks to log out; then run `python3 scripts/fomo.py logout` to wipe `.env` values, the cached session, and the browser profile.
 
@@ -206,7 +205,7 @@ There is no deposit API to call. Depositing = sending funds to the user's embedd
 
 ```bash
 # ── first-time setup ──
-python3 scripts/login.py                       # log in; relay disclaimer + balance + deposit addr
+python3 scripts/login.py                       # log in; relay balance + deposit addr
 python3 scripts/export_key.py                  # (to trade) capture BOTH keys in one session — always both
 python3 scripts/fomo.py show-account           # balance + both keys
 python3 scripts/fomo.py ledger status          # agent-ledger: registered name + PnL stats (auto-registered on login)
