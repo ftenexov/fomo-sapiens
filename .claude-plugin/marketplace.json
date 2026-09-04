@@ -1,0 +1,16 @@
+{
+  "name": "fomo-sapiens",
+  "description": "Fomo Sapiens — a natural-language agent skill for fomo.family: token research, thesis analysis, portfolio, and live Solana + EVM trading.",
+  "owner": {
+    "name": "ftenexov",
+    "url": "https://github.com/ftenexov"
+  },
+  "plugins": [
+    {
+      "name": "fomo-sapiens",
+      "source": ".",
+      "description": "Research, trade, and write theses on fomo.family — token research, thesis analysis, portfolio, and live Solana + EVM swaps.",
+      "version": "1.0.0"
+    }
+  ]
+}
