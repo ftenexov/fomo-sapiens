@@ -416,8 +416,10 @@ def whoami(auth):
     w = auth.get("_wallets") or {}
     if not w.get("sol"):
         die("No solana embedded wallet in the privy session response.")
-    status, text = api_call(auth, "POST", "/v2/users",
-                            json.dumps({"address": w["sol"], "evmAddress": w.get("evm")}))
+    payload = {"address": w["sol"]}
+    if w.get("evm"):
+        payload["evmAddress"] = w["evm"]   # omit rather than send null when the EVM wallet isn't provisioned yet
+    status, text = api_call(auth, "POST", "/v2/users", json.dumps(payload))
     if status != 200:
         die(f"fomo /v2/users failed ({status}): {text[:300]}")
     user = json.loads(text)["responseObject"]
