@@ -9,7 +9,7 @@ Point your agent at fomo.family and it can:
 - **Post a thesis** on request after a buy (it offers, never auto-posts), grounded in the data it just gathered.
 - **Manage the account** — balance, deposits, portfolio — from requests like *"research the top trending tokens,"* *"buy $5 of X,"* or *"sell half my BUWA."*
 
-Onboarding is a single browser login: Fomo Sapiens captures your session and shows your balance and deposit address — research, thesis reading/posting, portfolio and quotes work immediately with **no keys**. After login it asks whether you want **analysis only** or to **enable trading**; only if you enable trading does it export your signing keys into an encrypted local store (hidden window, nothing to click or paste), decrypted only in-memory to sign.
+Onboarding is a single browser login: Fomo Sapiens captures your session and shows your balance and deposit address — research, thesis reading/posting, portfolio and quotes work immediately with **no keys**. After login it asks whether you want **analysis only** or to **enable trading**; only if you enable trading does it export your signing keys into an encrypted local store — a browser window opens and drives itself (don't click anything in it until it's done), and the keys are decrypted only in-memory to sign.
 
 > ⚠️ **Unofficial & use-at-your-own-risk.** It is not endorsed by fomo, can break without notice, and touches real funds. Read the Security section before using trading. You are responsible for your account and money.
 
@@ -64,9 +64,9 @@ python3 scripts/login.py --headless  # later: refresh tokens from the saved sess
 >
 > **No existing fomo account needed.** Any Google account works — if it has never been used on fomo.family, signing in creates a fresh fomo account (new handle, new embedded Solana + EVM wallets, $0 balance) on the spot. That's actually the recommended path: a throwaway Google account → brand-new fomo account → deposit only what you'll trade.
 
-**Keys (only needed to trade):** private keys are **not** in the page (Privy keeps them in a secure enclave), but `scripts/export_key.py` drives Privy's export iframe for you — it runs in a **hidden (minimized) window**, captures **both** keys, and stores them **encrypted at rest** (masked; the secrets are never printed). Normally you do nothing. Only if the automated capture fails (e.g. Privy rate-limits repeated exports) does the window appear so you can click **Export key → Copy key** for the Solana row then a Base row (you still paste nothing):
+**Keys (only needed to trade):** private keys are **not** in the page (Privy keeps them in a secure enclave), but `scripts/export_key.py` drives Privy's export iframe for you — it opens a **visible window** and drives itself (**don't click anything in it until it finishes**), capturing **both** keys and storing them **encrypted at rest** (masked; the secrets are never printed). If the automated capture fails (e.g. Privy rate-limits repeated exports) it prompts you to click **Export key → Copy key** for the Solana row then a Base row yourself (you still paste nothing):
 ```bash
-python3 scripts/export_key.py          # automatic + hidden; captures both keys (Solana + EVM)
+python3 scripts/export_key.py          # automated; a visible window drives itself — don't click until done
 python3 scripts/export_key.py evm      # (single chain, if you ever need to redo just one)
 ```
 Or set a key manually: `python3 scripts/fomo.py set-key solana <key>` (also stored encrypted). Keys don't expire — a one-time step per account.

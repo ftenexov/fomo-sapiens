@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Automated signing-key export — runs hidden, surfaces only if it fails.
+"""Automated signing-key export — visible window, drives itself.
 
 Private keys are NOT in the page (Privy assembles them in a secure cross-origin iframe), but
 we drive that iframe with Playwright: for each address the script clicks **Export key** in
@@ -7,14 +7,14 @@ fomo's modal, then **Copy key** inside the Privy iframe, and reads the revealed 
 clipboard. The key is assembled inside Privy exactly as in the app — we just automate the
 clicks — then it is encrypted at rest immediately (masked; never printed).
 
-The browser window is launched and **minimized** so the user never sees it, and the run is
-**silent on success**. Only if the automated capture fails 3 times does it un-hide the window
-and fall back to asking the user to click Export key -> Copy key themselves.
+The browser window is **visible** (a minimized/hidden window proved unreliable for the Privy
+reveal and clipboard). **The user must NOT click anything in it until it finishes or is
+explicitly prompted** — a stray click can interrupt the automated capture. If the automated
+attempts fail, it asks the user to click Export key -> Copy key themselves.
 
-(fomo's app does not render its UI in a true-headless browser, so we use a real, minimized
-window rather than headless.)
+(fomo's app does not render its UI in a true-headless browser, so this uses a real window.)
 
-    python3 export_key.py           # DEFAULT: both keys (Solana + EVM), hidden + automated
+    python3 export_key.py           # DEFAULT: both keys (Solana + EVM), automated
     python3 export_key.py solana    # only the Solana key
     python3 export_key.py evm       # only the EVM key (Base/Monad/BNB/Robinhood share one)
 
@@ -198,24 +198,14 @@ def _manual_capture(pg, needed, captured):
         time.sleep(1)
 
 
-def _set_window_state(cdp, wid, state, bounds=None):
-    if wid is None:
-        return
-    try:
-        b = {"windowState": state}
-        cdp.send("Browser.setWindowBounds", {"windowId": wid, "bounds": b})
-        if bounds:
-            cdp.send("Browser.setWindowBounds", {"windowId": wid, "bounds": {**bounds, "windowState": "normal"}})
-    except Exception:
-        pass
-
-
 def run(target="both", allow_manual=True):
     """Capture the needed key(s) into the encrypted store. Returns (captured, missing).
 
-    allow_manual=True (CLI): if 3 hidden attempts fail, un-hide the window and let the user
-    click Export key -> Copy key. allow_manual=False (login.py background setup): stay fully
-    hidden and silent — never show a window, never block on a human; just report what's missing.
+    Opens a VISIBLE browser window and drives the Privy export iframe itself (clicks Export
+    key -> Copy key, reads the clipboard). The user must NOT click anything in the window until
+    it finishes or is explicitly prompted — a stray click can interrupt the automated capture.
+    allow_manual=True (CLI): if the automated attempts fail, prompt the user to click Export
+    key -> Copy key themselves. allow_manual=False: never prompt, just report what's missing.
     Raises ImportError if Playwright is unavailable (callers guard)."""
     needed = ["solana", "evm"] if target == "both" else [target]
     from playwright.sync_api import sync_playwright
@@ -225,6 +215,10 @@ def run(target="both", allow_manual=True):
                   ignore_default_args=["--enable-automation"], chromium_sandbox=True)
     captured = {}
 
+    print("🔑 A browser window will open to export your signing keys. DO NOT click anything in "
+          "it — it drives itself and finishes on its own (it will prompt you only if it needs a "
+          "manual click).", flush=True)
+
     with sync_playwright() as p:
         try:
             ctx = p.chromium.launch_persistent_context(PROFILE, channel="chrome", **launch)
@@ -233,16 +227,8 @@ def run(target="both", allow_manual=True):
         ctx.grant_permissions(["clipboard-read", "clipboard-write"])
         pg = ctx.pages[0] if ctx.pages else ctx.new_page()
 
-        # Hide the window (minimize) so export runs seamlessly out of sight.
-        cdp, wid = None, None
-        try:
-            cdp = ctx.new_cdp_session(pg)
-            wid = cdp.send("Browser.getWindowForTarget")["windowId"]
-            _set_window_state(cdp, wid, "minimized")
-        except Exception:
-            cdp, wid = None, None
-
-        # Up to ATTEMPTS silent automated passes.
+        # The window stays VISIBLE the whole time — a minimized window proved unreliable for the
+        # Privy reveal/clipboard. The user was told above not to click until we're done.
         for _ in range(ATTEMPTS):
             if not any(k not in captured for k in needed):
                 break
@@ -251,15 +237,14 @@ def run(target="both", allow_manual=True):
             except Exception:
                 pass
 
-        # Only when allowed: un-hide the window and let the user click.
+        # If automation couldn't get it, ask the user to click (the window is already visible).
         if allow_manual and any(k not in captured for k in needed):
-            _set_window_state(cdp, wid, "normal", bounds={"left": 80, "top": 60, "width": 1440, "height": 900})
             try:
                 pg.bring_to_front()
             except Exception:
                 pass
-            print(f"Automated key export didn't succeed after {ATTEMPTS} tries — opening the "
-                  f"browser so you can finish it.", file=sys.stderr)
+            print(f"Automated key export didn't succeed after {ATTEMPTS} tries — please click "
+                  f"Export key -> Copy key in the browser window now.", file=sys.stderr)
             _manual_capture(pg, needed, captured)
 
         ctx.close()
