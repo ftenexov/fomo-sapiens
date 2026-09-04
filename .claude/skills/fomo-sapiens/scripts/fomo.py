@@ -24,9 +24,9 @@ PRIVY = "https://auth.privy.io"
 
 DISCLAIMER = (
     "\n⚠️  DISCLAIMER — do NOT use your main fomo.family account with this tool.\n"
-    "   This is an unofficial integration. Session tokens (and, if you trade, your\n"
-    "   exported private key) are stored in PLAINTEXT on this machine. Use a separate\n"
-    "   account holding only funds you can afford to lose. Run `fomo.py logout` to wipe it.\n"
+    "   This is an unofficial integration. Session tokens are stored in plaintext on this\n"
+    "   machine; exported signing keys go in your OS keychain. Use a separate account\n"
+    "   holding only funds you can afford to lose. Run `fomo.py logout` to wipe it.\n"
 )
 
 SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -403,8 +403,9 @@ def token_decimals(auth, token_id):
 # login/trade continues. The user can opt out at any time: `fomo.py ledger off`.
 
 def ledger_url():
-    """Ledger base URL, or None when disabled (LEDGER_OPT_OUT=1, or LEDGER_URL set to blank)."""
-    if os.environ.get("LEDGER_OPT_OUT", "").strip().lower() in ("1", "true", "yes"):
+    """Ledger base URL, or None when disabled. The ledger is **opt-in**: OFF until the user runs
+    `fomo.py ledger on` (which sets LEDGER_OPT_IN=1). Also off if LEDGER_URL is blanked."""
+    if os.environ.get("LEDGER_OPT_IN", "").strip().lower() not in ("1", "true", "yes"):
         return None
     if "LEDGER_URL" in os.environ and not os.environ["LEDGER_URL"].strip():
         return None
@@ -466,7 +467,7 @@ def ledger_register(auth=None, quiet=False):
 
 
 def ledger_report(side, token_address, network_id, token_amount, usd_value, tx_signature, token_symbol=""):
-    """Report an executed trade to the agent ledger. No-op when opted out. Registers on the fly
+    """Report an executed trade to the agent ledger. No-op unless opted in. Registers on the fly
     if this account has no agent key yet. Never raises — reporting must not break a completed trade."""
     if not ledger_url():
         return
@@ -515,7 +516,7 @@ def ledger_status():
 
 def ledger_opt_out():
     """Opt out: delete this agent + all its trades server-side (best-effort), forget the key,
-    and persist LEDGER_OPT_OUT=1 so nothing is reported until `ledger on`."""
+    and set LEDGER_OPT_IN=0 so nothing is reported until `ledger on`."""
     key = os.environ.get("LEDGER_AGENT_KEY")
     deleted = None
     if ledger_url() and key:
@@ -524,14 +525,16 @@ def ledger_opt_out():
             deleted = json.loads(text).get("deleted_trades") if status == 200 else f"HTTP {status}"
         except Exception as e:
             deleted = f"failed: {str(e)[:60]}"
-    _set_env_values({"LEDGER_AGENT_KEY": "", "LEDGER_OPT_OUT": "1"})
-    os.environ["LEDGER_OPT_OUT"] = "1"; os.environ.pop("LEDGER_AGENT_KEY", None)
+    _set_env_values({"LEDGER_AGENT_KEY": "", "LEDGER_OPT_IN": "0"})
+    os.environ["LEDGER_OPT_IN"] = "0"; os.environ.pop("LEDGER_AGENT_KEY", None)
     return deleted
 
 
 def ledger_opt_in():
-    _set_env_values({"LEDGER_OPT_OUT": ""})
-    os.environ.pop("LEDGER_OPT_OUT", None)
+    """Opt in: enable trade tracking, then register (needs the signing key — otherwise it
+    registers on the first trade)."""
+    _set_env_values({"LEDGER_OPT_IN": "1"})
+    os.environ["LEDGER_OPT_IN"] = "1"
     return ledger_register()
 
 

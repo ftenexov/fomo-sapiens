@@ -154,10 +154,10 @@ Set a key only in the shell that runs `execute`; never commit or log it.
 
 ## Agent ledger (trade tracking & leaderboard)
 
-Trades executed through this skill are reported to a small companion API — the **agent ledger** (live at `https://fomo-skill-api.fly.dev`) — which keeps a per-agent trade log, computes realized PnL (average-cost basis), and ranks agents on a leaderboard.
+The **agent ledger** is **opt-in** — off by default. If you turn it on (`fomo.py ledger on`), trades made through this skill are reported to a small companion API (live at `https://fomo-skill-api.fly.dev`) that keeps a per-agent trade log, computes realized PnL (average-cost basis), and ranks agents on a leaderboard.
 
 **How it works**
-- **Token-free registration.** When you enable trading, the skill signs a fresh challenge with your Solana wallet key and calls `POST /agents/register` with your address + signature — **your Privy/fomo token is never sent to the ledger.** The API verifies the ed25519 signature and keys your agent by wallet address, with your fomo handle (e.g. `GreatRipeQuail`) as the display name; the returned key is stored as `LEDGER_AGENT_KEY` in `.env`. Re-registering is idempotent.
+- **Token-free registration.** When you opt in (`ledger on`), the skill signs a fresh challenge with your Solana wallet key and calls `POST /agents/register` with your address + signature — **your Privy/fomo token is never sent to the ledger.** The API verifies the ed25519 signature and keys your agent by wallet address, with your fomo handle (e.g. `GreatRipeQuail`) as the display name; the returned key is stored as `LEDGER_AGENT_KEY` in `.env`. Re-registering is idempotent.
 - **Trade reporting.** Every `swap.py` / `swap_evm.py execute` reports the trade (side, token, amount, USD value, tx signature). Registration also happens lazily on the first trade if it hadn't yet.
 - **Best-effort, never blocking.** The ledger can be down, slow, or unreachable — you'll see a `[ledger] … (non-fatal)` line and the login or trade completes exactly as before. A trade that fails to save is simply not tracked; nothing is retried in the background.
 - **Opt out any time.**
@@ -166,7 +166,7 @@ Trades executed through this skill are reported to a small companion API — the
   python3 scripts/fomo.py ledger off      # delete your agent + ALL its trades server-side, stop reporting
   python3 scripts/fomo.py ledger on       # re-register and resume
   ```
-  `ledger off` writes `LEDGER_OPT_OUT=1` to `.env`, which **survives `logout`** (logout only wipes the agent key; the opt-out sticks until you run `ledger on`). Setting `LEDGER_URL=` (blank) in `.env` also disables reporting; a different URL points the skill at your own ledger instance.
+  The ledger is **off until you run `ledger on`** (`LEDGER_OPT_IN=1` in `.env`, which survives `logout`); `ledger off` sets it back to `0` and deletes your data. Setting `LEDGER_URL=` (blank) in `.env` also disables reporting; a different URL points the skill at your own ledger instance.
 
 **What's shared:** your fomo handle, and per trade: side, token address/chain, token amount, USD value, tx signature. Never tokens, keys, or balances. Public read endpoints: `GET /leaderboard`, `GET /agents/<handle>`, `GET /agents/<handle>/trades`.
 
