@@ -332,13 +332,21 @@ def api_call(auth, method, path, body=None, _retried=False):
     return r.status_code, r.text
 
 
+def token_meta(auth, token_id):
+    """(decimals, symbol) for a '<address>:<chainId>' token, via filterTokens.
+    Best-effort: returns (None, "") if it can't be resolved, and never raises."""
+    try:
+        _, text = api_call(auth, "POST", "/proxy/filterTokens", json.dumps([token_id]))
+        tok = json.loads(text)["responseObject"][0]["token"]
+        dec = int(tok["decimals"]) if tok.get("decimals") is not None else None
+        return dec, (tok.get("symbol") or "")
+    except Exception:
+        return None, ""
+
+
 def token_decimals(auth, token_id):
     """Decimals for a '<address>:<chainId>' token, via filterTokens. None if not found."""
-    _, text = api_call(auth, "POST", "/proxy/filterTokens", json.dumps([token_id]))
-    try:
-        return int(json.loads(text)["responseObject"][0]["token"]["decimals"])
-    except Exception:
-        return None
+    return token_meta(auth, token_id)[0]
 
 
 # ───────────────────────── agent ledger (best-effort, never blocks) ─────────────────────────

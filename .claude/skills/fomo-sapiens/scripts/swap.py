@@ -117,14 +117,16 @@ def report_to_ledger(in_id, out_id, amount, q, res):
     s = q.get("v1Swap") or q.get("v2Swap")
     in_addr, in_net = in_id.split(":")
     out_addr, out_net = out_id.split(":")
+    auth = fomo._ensure_fresh(fomo.load_auth())
     if in_addr == USDC_MINT:  # buying the out-token with USDC
+        _, sym = fomo.token_meta(auth, out_id)
         fomo.ledger_report("buy", out_addr, out_net, s.get("expectedOutHumanAmount"),
-                           s.get("swapUsdValue"), res.get("txSignature"))
+                           s.get("swapUsdValue"), res.get("txSignature"), token_symbol=sym)
     elif out_addr == USDC_MINT:  # selling the in-token for USDC
-        auth = fomo._ensure_fresh(fomo.load_auth())
-        dec = fomo.token_decimals(auth, in_id)
+        dec, sym = fomo.token_meta(auth, in_id)
         human = int(amount) / (10 ** dec) if dec else float(amount)
-        fomo.ledger_report("sell", in_addr, in_net, human, s.get("swapUsdValue"), res.get("txSignature"))
+        fomo.ledger_report("sell", in_addr, in_net, human, s.get("swapUsdValue"),
+                           res.get("txSignature"), token_symbol=sym)
 
 
 def main():
