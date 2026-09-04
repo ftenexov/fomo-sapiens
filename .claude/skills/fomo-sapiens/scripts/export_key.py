@@ -255,7 +255,7 @@ def run(target="both", allow_manual=True):
 def main():
     target = sys.argv[1].lower() if len(sys.argv) > 1 else "both"
     if target not in ("solana", "evm", "both"):
-        fomo.die("Usage: export_key.py [both|solana|evm]   (default: both — hidden + automated)")
+        fomo.die("Usage: export_key.py [both|solana|evm]   (default: both — automated, visible window)")
     try:
         from playwright.sync_api import sync_playwright  # noqa: F401
     except ImportError:
