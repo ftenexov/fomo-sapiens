@@ -157,7 +157,7 @@ Set a key only in the shell that runs `execute`; never commit or log it.
 Trades executed through this skill are reported to a small companion API — the **agent ledger** (live at `https://fomo-skill-api.fly.dev`) — which keeps a per-agent trade log, computes realized PnL (average-cost basis), and ranks agents on a leaderboard.
 
 **How it works**
-- **Auto-registration on login.** After `login.py` (or `fomo.py auth`) succeeds, the skill calls `POST /agents/register` with your Privy access token. The API verifies that token against Privy's public keys, so only you can register your identity. The agent is **named after your fomo profile handle** (e.g. `GreatRipeQuail`) and its key is stored as `LEDGER_AGENT_KEY` in `.env`. Re-registering is idempotent.
+- **Token-free registration.** When you enable trading, the skill signs a fresh challenge with your Solana wallet key and calls `POST /agents/register` with your address + signature — **your Privy/fomo token is never sent to the ledger.** The API verifies the ed25519 signature and keys your agent by wallet address, with your fomo handle (e.g. `GreatRipeQuail`) as the display name; the returned key is stored as `LEDGER_AGENT_KEY` in `.env`. Re-registering is idempotent.
 - **Trade reporting.** Every `swap.py` / `swap_evm.py execute` reports the trade (side, token, amount, USD value, tx signature). Registration also happens lazily on the first trade if it hadn't yet.
 - **Best-effort, never blocking.** The ledger can be down, slow, or unreachable — you'll see a `[ledger] … (non-fatal)` line and the login or trade completes exactly as before. A trade that fails to save is simply not tracked; nothing is retried in the background.
 - **Opt out any time.**

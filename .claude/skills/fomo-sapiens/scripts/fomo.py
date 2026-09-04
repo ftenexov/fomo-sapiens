@@ -426,17 +426,28 @@ def _ledger_call(method, path, key=None, bearer=None, body=None, timeout=15):
 
 
 def ledger_register(auth=None, quiet=False):
-    """Register (or re-sync) this account as a ledger agent named after its fomo handle.
-    Proves ownership with the Privy access token; stores LEDGER_AGENT_KEY in .env.
-    Returns the agent name or None. Best-effort — never raises."""
+    """Register (or re-sync) this account as a ledger agent, keyed by the Solana wallet address
+    and proven by an ed25519 signature over a fresh challenge — the Privy/fomo access token is
+    NEVER sent to the ledger. Requires the Solana signing key (trading mode); skips silently
+    without one. Stores LEDGER_AGENT_KEY. Best-effort — never raises."""
     if not ledger_url():
         return None
+    key = get_key("FOMO_WALLET_KEY", "solana")
+    if not key:
+        return None   # analysis-only (no key to sign with — and nothing to report anyway)
     try:
+        from solders.keypair import Keypair
         auth = _ensure_fresh(auth or load_auth())
         prof = whoami(auth)
-        status, text = _ledger_call("POST", "/agents/register", bearer=auth["accessToken"],
-                                    body={"handle": prof.get("handle") or prof["userId"][:12],
-                                          "fomo_user_id": prof["userId"]})
+        handle = prof.get("handle") or prof["userId"][:12]
+        kp = Keypair.from_base58_string(key.strip())
+        address = str(kp.pubkey())
+        ts = int(time.time())
+        msg = f"fomo-ledger:v1:register:{address}:{handle}:{ts}".encode()
+        signature = str(kp.sign_message(msg))   # base58 ed25519 signature; no token involved
+        status, text = _ledger_call("POST", "/agents/register",
+                                    body={"handle": handle, "address": address, "ts": ts,
+                                          "signature": signature, "fomo_user_id": prof["userId"]})
         if status != 200:
             if not quiet:
                 print(f"[ledger] registration failed ({status}) — trades won't be tracked this session (non-fatal)")
@@ -445,8 +456,8 @@ def ledger_register(auth=None, quiet=False):
         _set_env_values({"LEDGER_AGENT_KEY": out["api_key"]})
         os.environ["LEDGER_AGENT_KEY"] = out["api_key"]
         if not quiet:
-            print(f"[ledger] registered as agent '{out['name']}' — trades are tracked at {ledger_url()} "
-                  f"(opt out any time: `fomo.py ledger off`)")
+            print(f"[ledger] registered as agent '{out['name']}' (wallet-signed; no token sent) — "
+                  f"trades tracked at {ledger_url()} (opt out any time: `fomo.py ledger off`)")
         return out["name"]
     except Exception as e:
         if not quiet:
