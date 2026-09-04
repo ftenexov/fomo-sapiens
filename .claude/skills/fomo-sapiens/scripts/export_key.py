@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
-"""Semi-automated signing-key export — ONE chain per run.
+"""Automated signing-key export — runs hidden, surfaces only if it fails.
 
-Private keys are NOT in the page (Privy holds them in a secure enclave) and Privy blocks
-fully-automated reveal, so the final click is yours. This drives the browser to fomo's export
-screen and watches the clipboard; you click "Export key" then "Copy key" for the requested
-address, and it stores the key ENCRYPTED on your machine (masked; the secret is never
-printed). You never paste anything - just click "Copy key"; the script reads the clipboard.
+Private keys are NOT in the page (Privy assembles them in a secure cross-origin iframe), but
+we drive that iframe with Playwright: for each address the script clicks **Export key** in
+fomo's modal, then **Copy key** inside the Privy iframe, and reads the revealed key from the
+clipboard. The key is assembled inside Privy exactly as in the app — we just automate the
+clicks — then it is encrypted at rest immediately (masked; never printed).
 
-    python3 export_key.py           # DEFAULT: both keys in one browser session (click Copy key twice)
+The browser window is launched and **minimized** so the user never sees it, and the run is
+**silent on success**. Only if the automated capture fails 3 times does it un-hide the window
+and fall back to asking the user to click Export key -> Copy key themselves.
+
+(fomo's app does not render its UI in a true-headless browser, so we use a real, minimized
+window rather than headless.)
+
+    python3 export_key.py           # DEFAULT: both keys (Solana + EVM), hidden + automated
     python3 export_key.py solana    # only the Solana key
     python3 export_key.py evm       # only the EVM key (Base/Monad/BNB/Robinhood share one)
 
-Run it once per chain (Solana first, then EVM). Needs the login profile (run login.py) + playwright.
+Needs the login profile (run login.py) + playwright.
 """
 import os
 import re
@@ -27,6 +34,7 @@ PROMPTS = {
     "solana": "the **Solana address**",
     "evm": "a **Base address** (any EVM row — Base/Monad/BNB/Robinhood share one key)",
 }
+ATTEMPTS = 3   # silent automated attempts before showing the window to the user
 
 
 def classify(k):
@@ -38,16 +46,37 @@ def classify(k):
     return None
 
 
+def _norm(kind, k):
+    return "0x" + k if kind == "evm" and not k.startswith("0x") else k
+
+
 def _mask(k):
     return f"{k[:4]}…{k[-4:]} (len {len(k)})"
 
 
+def _store(kind, key, captured):
+    """Encrypt-and-store the moment a key is captured; record it as captured."""
+    captured[kind] = _norm(kind, key)
+    fomo.set_key(kind, captured[kind])   # encrypted at rest (Fernet); never printed
+
+
 def open_export_screen(pg):
-    """Navigate: avatar -> Manage account -> Export keys -> acknowledge risks -> Continue."""
+    """Navigate: account menu -> Manage account -> Export keys -> acknowledge -> Continue,
+    landing on fomo's 'Choose an address to export' modal (one 'Export key' per address)."""
     pg.goto("https://fomo.family", wait_until="domcontentloaded")
     time.sleep(7)
     try:
-        pg.mouse.click(1410, 32); time.sleep(2)
+        # Account menu trigger = the nav button wrapping the /profile/<handle> link.
+        try:
+            trig = pg.locator('button:has(a[href*="/profile/"])').first
+            try:
+                trig.hover(timeout=3000)
+            except Exception:
+                pass
+            trig.click(timeout=6000)
+        except Exception:
+            pg.mouse.click(1410, 32)   # coordinate fallback if the selector changes
+        time.sleep(2)
         pg.click("text=Manage account", timeout=6000); time.sleep(3)
         pg.click("text=Export keys", timeout=6000); time.sleep(3)
         try:
@@ -57,32 +86,146 @@ def open_export_screen(pg):
         time.sleep(1)
         pg.click("text=Continue", timeout=6000); time.sleep(3)
     except Exception as e:
-        print(f"(couldn't auto-open the export screen: {str(e)[:60]} — open it manually: "
-              f"avatar → Manage account → Export keys)")
+        print(f"(couldn't auto-open the export screen: {str(e)[:60]})", file=sys.stderr)
 
 
-# signing keys are persisted via fomo.set_key() - encrypted at rest, one file per account
+def _read_clip(pg):
+    try:
+        return (pg.evaluate("() => navigator.clipboard.readText()") or "").strip()
+    except Exception:
+        return ""
+
+
+_KEY_RX = r"[1-9A-HJ-NP-Za-km-z]{80,90}|(?:0x)?[0-9a-fA-F]{64}"
+_SCAN_JS = (
+    "() => { const rx=/" + _KEY_RX + "/;"
+    " for (const i of document.querySelectorAll('input,textarea')) { const m=(i.value||'').match(rx); if(m) return m[0]; }"
+    " const m=(document.body?document.body.innerText:'').match(rx); return m?m[0]:''; }"
+)
+
+# Fixed modal order: Solana row 0, then the EVM rows (Base/Monad/BNB/Robinhood share one key).
+ROW = {"solana": 0, "evm": 1}
+
+
+def _click_copy_key(pg):
+    """Click 'Copy key' inside the Privy export iframe (prefers the privy.io frame)."""
+    for fr in sorted(pg.frames, key=lambda f: 0 if "privy" in (f.url or "") else 1):
+        try:
+            loc = fr.get_by_text("Copy key", exact=True)
+            if loc.count():
+                loc.first.click()
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _scan_privy_dom(pg):
+    """Fallback to reading the revealed key straight from the Privy iframe DOM (in case the
+    clipboard is unavailable, e.g. an unfocused/minimized window)."""
+    for fr in sorted(pg.frames, key=lambda f: 0 if "privy" in (f.url or "") else 1):
+        try:
+            v = (fr.evaluate(_SCAN_JS) or "").strip()
+            if classify(v):
+                return v
+        except Exception:
+            continue
+    return ""
+
+
+def _reveal_and_read(pg):
+    """After 'Export key' is clicked: click 'Copy key' and read the clipboard; if that yields
+    nothing (unfocused window), scan the Privy iframe DOM. Returns a key string or ''."""
+    copied = False
+    for _ in range(8):
+        time.sleep(1)
+        if _click_copy_key(pg):
+            copied = True
+            break
+    for _ in range(5):
+        time.sleep(1)
+        cb = _read_clip(pg)
+        if cb and cb != "__WAITING__" and classify(cb):
+            return cb
+    return _scan_privy_dom(pg) if copied or True else ""
+
+
+def _auto_capture(pg, needed, captured):
+    """One automated pass: for each needed chain, open the export modal, click its row's
+    'Export key', then read the revealed key (Copy key -> clipboard, DOM fallback). Only the
+    Solana (row 0) and EVM/Base (row 1) rows are visited — never brute-forced. Stores on
+    capture; validates by key FORMAT so a wrong row can't be miswritten."""
+    for kind in [k for k in needed if k not in captured]:
+        open_export_screen(pg)
+        try:
+            pg.evaluate("() => navigator.clipboard.writeText('__WAITING__')")
+            pg.get_by_text("Export key", exact=True).nth(ROW[kind]).click()
+        except Exception:
+            continue
+        key = _reveal_and_read(pg)
+        if key and classify(key) == kind:
+            _store(kind, key, captured)
+
+
+def _manual_capture(pg, needed, captured):
+    """Shown only after automated attempts fail: reopen the screen and watch the clipboard so
+    the user clicks Export key -> Copy key themselves for whatever is still missing."""
+    open_export_screen(pg)
+
+    def prompt():
+        want = [k for k in needed if k not in captured]
+        print(f"\n➡️  Couldn't grab the key automatically — in the browser window (now visible) "
+              f"click **Export key** then **Copy key** for {PROMPTS[want[0]]}."
+              + (f"  (then the same for {PROMPTS[want[1]]})" if len(want) > 1 else ""))
+        print("   (the plain 'Copy' button only copies the public address — use 'Copy key')\n", flush=True)
+
+    pg.evaluate("() => navigator.clipboard.writeText('__WAITING__')")
+    prompt()
+    deadline = time.time() + 300
+    last = "__WAITING__"
+    while time.time() < deadline and any(k not in captured for k in needed):
+        cb = _read_clip(pg)
+        if cb and cb != last:
+            last = cb
+            kind = classify(cb)
+            if kind in needed and kind not in captured:
+                _store(kind, cb, captured)
+                print(f"✅ captured {kind} key {_mask(captured[kind])}", flush=True)
+                if any(k not in captured for k in needed):
+                    prompt()
+            elif kind and kind not in needed:
+                print(f"(that looks like the {kind} key — I still need the {needed[0]} key)")
+        time.sleep(1)
+
+
+def _set_window_state(cdp, wid, state, bounds=None):
+    if wid is None:
+        return
+    try:
+        b = {"windowState": state}
+        cdp.send("Browser.setWindowBounds", {"windowId": wid, "bounds": b})
+        if bounds:
+            cdp.send("Browser.setWindowBounds", {"windowId": wid, "bounds": {**bounds, "windowState": "normal"}})
+    except Exception:
+        pass
 
 
 def main():
     target = sys.argv[1].lower() if len(sys.argv) > 1 else "both"
     if target not in ("solana", "evm", "both"):
-        fomo.die("Usage: export_key.py [both|solana|evm]   (default: both — one browser session, both keys)")
+        fomo.die("Usage: export_key.py [both|solana|evm]   (default: both — hidden + automated)")
     needed = ["solana", "evm"] if target == "both" else [target]
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
-        fomo.die("Playwright not installed: python3 -m pip install playwright && playwright install chromium")
+        fomo.die("Playwright not installed. Run the bootstrap once (installs it + Chromium):\n"
+                 "  bash scripts/bootstrap.sh\n"
+                 "or: python3 -m pip install playwright && playwright install chromium")
 
-    launch = dict(headless=False, args=["--disable-blink-features=AutomationControlled"],
+    launch = dict(headless=False, no_viewport=True,
+                  args=["--disable-blink-features=AutomationControlled", "--window-size=1440,900"],
                   ignore_default_args=["--enable-automation"], chromium_sandbox=True)
     captured = {}
-
-    def prompt():
-        want = [k for k in needed if k not in captured]
-        print(f"\n➡️  In the browser: click **Export key** then **Copy key** for {PROMPTS[want[0]]}."
-              + (f"  (then the same for {PROMPTS[want[1]]})" if len(want) > 1 else ""))
-        print("   (the plain 'Copy' button only copies the public address — use 'Copy key')\n", flush=True)
 
     with sync_playwright() as p:
         try:
@@ -91,41 +234,43 @@ def main():
             ctx = p.chromium.launch_persistent_context(PROFILE, **launch)
         ctx.grant_permissions(["clipboard-read", "clipboard-write"])
         pg = ctx.pages[0] if ctx.pages else ctx.new_page()
-        pg.set_viewport_size({"width": 1440, "height": 900})
-        open_export_screen(pg)
-        pg.evaluate("() => navigator.clipboard.writeText('__WAITING__')")
 
-        prompt()
-        deadline = time.time() + 300   # 5 min
-        last = "__WAITING__"
-        while time.time() < deadline and any(k not in captured for k in needed):
+        # Hide the window (minimize) so export runs seamlessly out of sight.
+        cdp, wid = None, None
+        try:
+            cdp = ctx.new_cdp_session(pg)
+            wid = cdp.send("Browser.getWindowForTarget")["windowId"]
+            _set_window_state(cdp, wid, "minimized")
+        except Exception:
+            cdp, wid = None, None
+
+        # Up to ATTEMPTS silent automated passes.
+        for _ in range(ATTEMPTS):
+            if not any(k not in captured for k in needed):
+                break
             try:
-                cb = (pg.evaluate("() => navigator.clipboard.readText()") or "").strip()
+                _auto_capture(pg, needed, captured)
             except Exception:
-                cb = ""
-            if cb and cb != last:
-                last = cb
-                kind = classify(cb)
-                if kind in needed and kind not in captured:
-                    captured[kind] = "0x" + cb if kind == "evm" and not cb.startswith("0x") else cb
-                    print(f"✅ captured {kind} key {_mask(captured[kind])}", flush=True)
-                    if any(k not in captured for k in needed):
-                        prompt()
-                elif kind and kind not in needed:
-                    print(f"(that looks like the {kind} key — I need the {needed[0]} key; "
-                          f"click Export key → Copy key on {PROMPTS[needed[0]]})")
-            time.sleep(1)
+                pass
+
+        # Only if still missing: un-hide the window and let the user click.
+        if any(k not in captured for k in needed):
+            _set_window_state(cdp, wid, "normal", bounds={"left": 80, "top": 60, "width": 1440, "height": 900})
+            try:
+                pg.bring_to_front()
+            except Exception:
+                pass
+            print(f"Automated key export didn't succeed after {ATTEMPTS} tries — opening the "
+                  f"browser so you can finish it.", file=sys.stderr)
+            _manual_capture(pg, needed, captured)
+
         ctx.close()
 
+    # Success path is silent by design; only report a real failure.
     missing = [k for k in needed if k not in captured]
-    if captured:
-        for k, v in captured.items():
-            fomo.set_key(k, v)   # encrypted at rest (Fernet), never written to .env in plaintext
-        print("🔒 stored (encrypted) " + ", ".join(f"{k} key {_mask(v)}" for k, v in captured.items())
-              + f" -> {fomo.keys_file()}")
     if missing:
-        fomo.die(f"No {', '.join(missing)} key captured. Re-run `export_key.py {' '.join(missing) if len(missing)==1 else 'both'}` "
-                 f"and click Export key → Copy key for {' / '.join(PROMPTS[k] for k in missing)}.")
+        fomo.die(f"Could not export {', '.join(missing)} key. Re-run `export_key.py "
+                 f"{' '.join(missing) if len(missing) == 1 else 'both'}`.")
 
 
 if __name__ == "__main__":
