@@ -43,7 +43,7 @@ Walk a new user through setup one step at a time; relay each result in chat befo
    **Do not pull keys unless the user opts into trading.** If they choose analysis only, skip the key step and go straight to research / thesis work.
 5. **Only if the user enabled trading — pull the keys:** run `python3 scripts/export_key.py` (default = both; always both, so a later EVM sell doesn't stall). It runs **hidden (minimized)** and stores both keys **encrypted** (~1-3 min); it's silent on success. Only if it can't capture automatically (e.g. Privy rate-limits the export) does a browser window appear — *then* tell the user to click **Export key → Copy key** on the **Solana address** and a **Base (EVM) address** (they paste nothing; the plain **"Copy"** button copies only the public address — use **"Copy key"**). It exits non-zero if a key is still missing — re-run `python3 scripts/export_key.py <missing chain>` (or `both`); don't start a trade with a missing key.
 6. **Trade / research** as requested (see below). The swap scripts decrypt the keys just-in-time to sign; run `python3 scripts/fomo.py show-account` and reveal the raw keys in chat only if the user explicitly asks — they otherwise stay encrypted at rest.
-7. **Log out** only when the user asks: `python3 scripts/fomo.py logout` wipes `.env`, the cached session, the keys, and the browser profile.
+7. **Keep the session alive between turns and sessions** — never log out on your own, not after a trade, not at the end of a conversation. Only when the user *explicitly* asks ("log me out", "wipe my keys") run `python3 scripts/fomo.py logout`, which wipes `.env`, the cached session, the keys, and the browser profile (they'd then have to log in and re-export keys next time).
 
 ## Setup: bootstrap first
 
@@ -73,7 +73,7 @@ Token model (verified against the `@privy-io/react-auth` 3.34.0 bundle):
 1. **The account handle and balance.**
 2. **If the account is empty → the deposit addresses** (Solana for SOL/USDC, EVM for the rest). Tell the user to deposit before trading; funds convert to Solana USDC. Re-check with `python3 scripts/fomo.py balances`.
 
-Keep using this account until the user asks to log out; then run `python3 scripts/fomo.py logout` to wipe `.env` values, the cached session, and the browser profile.
+Keep using this account indefinitely; only when the user explicitly asks to log out run `python3 scripts/fomo.py logout` to wipe `.env` values, the cached session, and the browser profile.
 
 **Setup (manual)** — ask the user to open fomo.family (logged in), run this in the DevTools console, and paste the result back:
 
@@ -243,9 +243,9 @@ python3 scripts/swap.py execute EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v:139
 python3 scripts/swap.py     execute <mint>:1399811149 EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v:1399811149 <rawAmount>   # Solana token
 python3 scripts/swap_evm.py execute <addr>:<evmChainId> <rawAmount>                                                          # EVM token
 
-# ── post a thesis, then wrap up ──
+# ── post a thesis ──
 python3 scripts/fomo.py post-thesis <addr> <chainId> "your thesis text"
-python3 scripts/fomo.py logout
+# (do NOT log out afterwards — the session stays until the user explicitly asks for `fomo.py logout`)
 ```
 
 Amounts are raw base units: USDC has 6 decimals ($5 = `5000000`); most tokens have 18 ($X = `X * 10**18`). For a "sell N%" request, read the raw balance from `balances` and take that fraction — don't eyeball decimals.
