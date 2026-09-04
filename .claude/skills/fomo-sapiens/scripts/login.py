@@ -140,7 +140,7 @@ def main():
     else:
         top = ", ".join(f"{h['amount']:g} {h['symbol']} (${h['usd']})" for h in s["holdings"][:5])
         print(f"Balance: ${s['usdTotal']} — {top}")
-    print("\nSession is kept until you explicitly ask to log out (`python3 fomo.py logout` wipes all account state).")
+    print("\nSession stays active until you explicitly log out or it expires (`python3 fomo.py logout` wipes all account state).")
 
 
 if __name__ == "__main__":

@@ -98,6 +98,11 @@ def logout():
     import shutil
     if os.path.exists(ENV_FILE):
         _set_env_values({k: "" for k in _MANAGED_ENV_KEYS})
+    kr = _keyring()
+    if kr is not None:
+        for field in ("solana", "evm"):
+            try: kr.delete_password(KEYRING_SERVICE, _key_username(field))
+            except Exception: pass
     for path in (AUTH_FILE, keys_file(), _secret_key_file()):
         try: os.remove(path)
         except FileNotFoundError: pass
@@ -182,14 +187,33 @@ def keys_file():
     return os.path.join(base, f"{stem}.keys.json")
 
 
+KEYRING_SERVICE = "fomo-sapiens"
 ENC_PREFIX = "enc:"
 
 
+def _key_username(field):
+    """Keychain account name, per profile + chain, so multiple accounts don't collide."""
+    stem = os.path.splitext(os.path.basename(AUTH_FILE))[0]  # 'auth' or the profile name
+    return f"{stem}:{field}"
+
+
+def _keyring():
+    """The OS keychain backend (macOS Keychain / Windows Credential Manager / libsecret), or
+    None if unavailable (e.g. a headless box with no backend). Best-effort; callers fall back."""
+    try:
+        import keyring
+        from keyring.backends.fail import Keyring as _Fail
+        if isinstance(keyring.get_keyring(), _Fail):
+            return None
+        return keyring
+    except Exception:
+        return None
+
+
+# ── encrypted-file fallback (used ONLY when no OS keychain is available) ─────────────────────
 def _secret_key_file():
-    """Local Fernet key that encrypts signing keys at rest. Kept next to the auth cache
-    (~/.config/fomo-sapiens/secret.key, chmod 600) - deliberately OUTSIDE the repo, so a
-    leaked or accidentally-committed keys file / .env is useless ciphertext without it.
-    Basic at-rest protection; not a defense against someone who can already read this dir."""
+    """Fallback Fernet key file, next to the auth cache (~/.config/fomo-sapiens/secret.key,
+    chmod 600). Used only when the OS keychain is unavailable — the keychain is preferred."""
     return os.path.join(os.path.dirname(AUTH_FILE), "secret.key")
 
 
@@ -212,19 +236,19 @@ def _fernet():
 
 
 def encrypt_secret(plaintext):
-    """Return enc:<fernet token>. If cryptography is not installed, store plaintext (with a
-    warning) rather than block key capture - run bootstrap to enable encryption."""
+    """Fallback-file encryption. NEVER stores plaintext: if cryptography is missing it fails
+    loudly (run the bootstrap) rather than writing the key in the clear."""
     try:
         return ENC_PREFIX + _fernet().encrypt(plaintext.encode()).decode()
     except ImportError:
-        print("cryptography not installed - storing this key UNENCRYPTED. "
-              "Run scripts/bootstrap.sh to enable at-rest encryption.", file=sys.stderr)
-        return plaintext
+        die("Can't secure the signing key: no OS keychain is available and the cryptography "
+            "package isn't installed. Run scripts/bootstrap.sh, then retry — keys are never "
+            "written in plaintext.")
 
 
 def decrypt_secret(value):
     """Inverse of encrypt_secret. Plaintext (no enc: prefix) passes through unchanged, so
-    env-set keys and older plaintext stores keep working."""
+    env-set keys keep working."""
     if not value or not value.startswith(ENC_PREFIX):
         return value
     try:
@@ -239,34 +263,58 @@ def decrypt_secret(value):
             "Re-export it: python3 scripts/export_key.py")
 
 
+def _file_load_keys():
+    try:
+        with open(keys_file()) as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+
+
+def _file_write_keys(data):
+    fd = os.open(keys_file(), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(data, f, indent=2)
+
+
 def get_key(env_name, field):
-    """Resolve a signing key (decrypted): env var wins (just-in-time), else the per-account
-    keys file. field is 'solana' or 'evm'. Returns None if unset."""
+    """Resolve a signing key: env var wins (just-in-time), else the OS keychain, else the
+    encrypted fallback file. field is 'solana' or 'evm'. Returns None if unset."""
     v = os.environ.get(env_name)
     if v:
         return decrypt_secret(v.strip())
-    try:
-        with open(keys_file()) as f:
-            raw = (json.load(f).get(field) or "").strip()
-    except FileNotFoundError:
-        return None
-    return decrypt_secret(raw) or None
+    kr = _keyring()
+    if kr is not None:
+        try:
+            got = kr.get_password(KEYRING_SERVICE, _key_username(field))
+            if got:
+                return got.strip()
+        except Exception:
+            pass
+    raw = (_file_load_keys().get(field) or "").strip()
+    return (decrypt_secret(raw) or None) if raw else None
 
 
 def set_key(field, value):
-    """Store a signing key ENCRYPTED at rest in the per-account keys file."""
-    path = keys_file()
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    try:
-        with open(path) as f:
-            data = json.load(f)
-    except FileNotFoundError:
-        data = {}
-    data[field] = encrypt_secret(value.strip())
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as f:
-        json.dump(data, f, indent=2)
-    return path
+    """Store a signing key in the OS keychain (macOS Keychain / Windows Credential Manager /
+    libsecret). Falls back to a Fernet-encrypted file only when no keychain is available; never
+    stores plaintext. Returns a short label for where it was stored."""
+    value = value.strip()
+    kr = _keyring()
+    if kr is not None:
+        try:
+            kr.set_password(KEYRING_SERVICE, _key_username(field), value)
+            data = _file_load_keys()        # migrate away from any older file entry
+            if data.pop(field, None) is not None:
+                _file_write_keys(data)
+            return "OS keychain"
+        except Exception:
+            pass
+    os.makedirs(os.path.dirname(keys_file()), exist_ok=True)
+    data = _file_load_keys()
+    data[field] = encrypt_secret(value)     # raises rather than store plaintext
+    _file_write_keys(data)
+    return keys_file()
 
 
 def jwt_exp(token):

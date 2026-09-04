@@ -60,16 +60,16 @@ python3 scripts/login.py --headless  # later: refresh tokens from the saved sess
 - On first run this **creates/fills `.env`** with the token values (keys stay empty).
 - `python3 scripts/fomo.py logout` when you're done — wipes the `.env` values, cached session, and browser profile.
 
-> ⚠️ **Don't use your main fomo.family account.** Session tokens are stored in plaintext on this machine (signing keys are encrypted at rest). Use a separate account with limited funds. login.py prints this on every login.
+> ⚠️ **Don't use your main fomo.family account.** Session tokens are stored in plaintext on this machine (signing keys go in your OS keychain). Use a separate account with limited funds. login.py prints this on every login.
 >
 > **No existing fomo account needed.** Any Google account works — if it has never been used on fomo.family, signing in creates a fresh fomo account (new handle, new embedded Solana + EVM wallets, $0 balance) on the spot. That's actually the recommended path: a throwaway Google account → brand-new fomo account → deposit only what you'll trade.
 
-**Keys (only needed to trade):** private keys are **not** in the page (Privy keeps them in a secure enclave), but `scripts/export_key.py` drives Privy's export iframe for you — it opens a **visible window** and drives itself (**don't click anything in it until it finishes**), capturing **both** keys and storing them **encrypted at rest** (masked; the secrets are never printed). If the automated capture fails (e.g. Privy rate-limits repeated exports) it prompts you to click **Export key → Copy key** for the Solana row then a Base row yourself (you still paste nothing):
+**Keys (only needed to trade):** private keys are **not** in the page (Privy keeps them in a secure enclave), but `scripts/export_key.py` drives Privy's export iframe for you — it opens a **visible window** and drives itself (**don't click anything in it until it finishes**), capturing **both** keys and storing them in your **OS keychain** (masked; the secrets are never printed). If the automated capture fails (e.g. Privy rate-limits repeated exports) it prompts you to click **Export key → Copy key** for the Solana row then a Base row yourself (you still paste nothing):
 ```bash
 python3 scripts/export_key.py          # automated; a visible window drives itself — don't click until done
 python3 scripts/export_key.py evm      # (single chain, if you ever need to redo just one)
 ```
-Or set a key manually: `python3 scripts/fomo.py set-key solana <key>` (also stored encrypted). Keys don't expire — a one-time step per account.
+Or set a key manually: `python3 scripts/fomo.py set-key solana <key>` (also stored in the OS keychain). Keys don't expire — a one-time step per account.
 
 **Manual** — log into fomo.family, open **DevTools → Console**, and run this to copy three ready-to-paste lines:
 ```js
@@ -79,7 +79,7 @@ FOMO_PRIVY_ACCESS_TOKEN=${JSON.parse(localStorage.getItem('privy:pat')||'null')}
 ```
 Paste over the matching lines in `.env`.
 
-**2) Keys (only if you'll trade).** Use `python3 scripts/export_key.py` (or `fomo.py set-key`) - keys are stored **encrypted** in `~/.config/fomo-sapiens/`, not in `.env`. You can still paste raw keys into `.env` as a plaintext fallback:
+**2) Keys (only if you'll trade).** Use `python3 scripts/export_key.py` (or `fomo.py set-key`) - keys are stored in your **OS keychain** (encrypted-file fallback on headless machines), not in `.env`. You can still paste raw keys into `.env` as a plaintext fallback:
 ```
 FOMO_WALLET_KEY=<solana base58 key>    # buys & Solana sells
 FOMO_EVM_KEY=<evm 0x-hex key>          # EVM-token sells
@@ -92,7 +92,7 @@ python3 scripts/fomo.py whoami          # confirms which account resolved
 ```
 
 - Tokens auto-refresh. The skill caches them in `~/.config/fomo-sapiens/*.json`; `.env` is the bootstrap. When the refresh token eventually dies, re-paste fresh tokens into `.env` and run `python3 scripts/fomo.py reseed`.
-- `.env` is git-ignored. **Never commit it** — it holds your session tokens (and any key you paste in as a plaintext fallback). Exported keys live **encrypted** in `~/.config/fomo-sapiens/`, not in `.env`.
+- `.env` is git-ignored. **Never commit it** — it holds your session tokens (and any key you paste in as a plaintext fallback). Exported keys live in your **OS keychain**, not in `.env`.
 
 ### Alternative: paste without a file
 ```bash
@@ -175,7 +175,7 @@ Trades executed through this skill are reported to a small companion API — the
 This skill is intentionally simple about secrets, which means **you** must be careful:
 
 - Privy tokens are stored **in plaintext** at `~/.config/fomo-sapiens/*.json` (mode 600). Anyone with read access to that file can act as your fomo account until the tokens expire.
-- Signing keys are stored **encrypted** (Fernet/AES) in `~/.config/fomo-sapiens/<profile>.keys.json`, using a key at `~/.config/fomo-sapiens/secret.key` (mode 600) that lives **outside the repo**; they are decrypted only just-in-time to sign. This is basic at-rest protection - anyone who can read *both* that keys file and secret.key can still recover the key, so keep the config dir private. (A key you paste into `.env` yourself stays plaintext.)
+- Signing keys are stored in your **OS keychain** (macOS Keychain / Windows Credential Manager / libsecret), read only just-in-time to sign — not in a file. If no keychain backend is available they fall back to a Fernet-encrypted file (key in `~/.config/fomo-sapiens/secret.key`, mode 600); the skill never writes a key in plaintext. The keychain protects keys at rest but is unlocked for any process running as your user, so a compromised account can still reach them — a hardware wallet is the only real defense. (A key you paste into `.env` yourself stays plaintext.)
 - A private key controls **all** funds in that wallet, not just what you're trading. Treat export as high-risk.
 - This is an unofficial API on real money. Start with tiny amounts.
 

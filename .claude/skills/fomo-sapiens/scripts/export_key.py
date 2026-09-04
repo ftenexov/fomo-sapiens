@@ -5,7 +5,7 @@ Private keys are NOT in the page (Privy assembles them in a secure cross-origin 
 we drive that iframe with Playwright: for each address the script clicks **Export key** in
 fomo's modal, then **Copy key** inside the Privy iframe, and reads the revealed key from the
 clipboard. The key is assembled inside Privy exactly as in the app — we just automate the
-clicks — then it is encrypted at rest immediately (masked; never printed).
+clicks — then it is stored in your OS keychain immediately (masked; never printed).
 
 The browser window is **visible** (a minimized/hidden window proved unreliable for the Privy
 reveal and clipboard). **The user must NOT click anything in it until it finishes or is
@@ -57,7 +57,7 @@ def _mask(k):
 def _store(kind, key, captured):
     """Encrypt-and-store the moment a key is captured; record it as captured."""
     captured[kind] = _norm(kind, key)
-    fomo.set_key(kind, captured[kind])   # encrypted at rest (Fernet); never printed
+    fomo.set_key(kind, captured[kind])   # stored in the OS keychain (encrypted-file fallback); never printed
 
 
 def open_export_screen(pg):

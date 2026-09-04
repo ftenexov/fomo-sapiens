@@ -7,3 +7,4 @@ rlp>=4.0            # EIP-7702 authorization encoding
 cryptography>=42    # at-rest encryption of exported signing keys (Fernet)
 # optional — automated login (scripts/login.py); after install also run: playwright install chromium
 # playwright>=1.44
+keyring>=24        # store signing keys in the OS keychain (macOS Keychain / Windows Cred Manager / libsecret)
